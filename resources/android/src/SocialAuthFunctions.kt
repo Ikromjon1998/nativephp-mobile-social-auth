@@ -190,7 +190,18 @@ object SocialAuthFunctions {
         }
 
         private fun getServerClientId(): String? {
-            // Read from Android meta-data (injected by NativePHP via nativephp.json secrets)
+            // Read from string resources (app provides via res/values/strings.xml)
+            try {
+                val resId = activity.resources.getIdentifier(
+                    "google_server_client_id", "string", activity.packageName
+                )
+                if (resId != 0) {
+                    val value = activity.getString(resId)
+                    if (value.isNotEmpty()) return value
+                }
+            } catch (_: Exception) {}
+
+            // Fallback: read from Android meta-data
             try {
                 val appInfo = activity.packageManager.getApplicationInfo(
                     activity.packageName,
@@ -200,16 +211,6 @@ object SocialAuthFunctions {
                 if (metaData != null) {
                     val clientId = metaData.getString("GOOGLE_SERVER_CLIENT_ID")
                     if (!clientId.isNullOrEmpty()) return clientId
-                }
-            } catch (_: Exception) {}
-
-            // Fallback: try reading from string resources
-            try {
-                val resId = activity.resources.getIdentifier(
-                    "google_server_client_id", "string", activity.packageName
-                )
-                if (resId != 0) {
-                    return activity.getString(resId)
                 }
             } catch (_: Exception) {}
 
