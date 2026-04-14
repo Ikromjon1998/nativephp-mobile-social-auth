@@ -34,9 +34,9 @@ test('each bridge function has ios and android mappings', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
 
     foreach ($json['bridge_functions'] as $fn) {
-        expect($fn)->toHaveKey('ios', "Bridge function {$fn['name']} missing iOS mapping");
-        expect($fn)->toHaveKey('android', "Bridge function {$fn['name']} missing Android mapping");
-        expect($fn)->toHaveKey('description', "Bridge function {$fn['name']} missing description");
+        expect($fn)->toHaveKey('ios');
+        expect($fn)->toHaveKey('android');
+        expect($fn)->toHaveKey('description');
     }
 });
 

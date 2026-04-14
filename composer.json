@@ -13,6 +13,12 @@
         "ios",
         "android"
     ],
+    "authors": [
+        {
+            "name": "Ikromjon Ochilov",
+            "email": "ikromjon120998@gmail.com"
+        }
+    ],
     "require": {
         "php": "^8.2",
         "nativephp/mobile": "^3.0",
@@ -47,7 +53,10 @@
         }
     },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     },
     "minimum-stability": "stable"
 }

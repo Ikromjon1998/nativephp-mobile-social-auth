@@ -39,7 +39,7 @@
                 "androidx.credentials:credentials-play-services-auth:1.6.0",
                 "com.google.android.libraries.identity.googleid:googleid:1.1.1"
             ]
-        },
+        }
     },
     "ios": {
         "min_version": "18.0",

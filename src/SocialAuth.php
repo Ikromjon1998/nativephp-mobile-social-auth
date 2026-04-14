@@ -6,7 +6,6 @@ use Ikromjon\NativePHP\SocialAuth\Data\AuthResult;
 
 class SocialAuth
 {
-    public static ?string $lastRawResponse = null;
     /**
      * Initiate native Apple Sign-In.
      *
@@ -34,6 +33,9 @@ class SocialAuth
                 if (isset($decoded['data']) && ($decoded['data']['status'] ?? '') === 'success') {
                     return AuthResult::fromArray($decoded['data']);
                 }
+                if (($decoded['status'] ?? '') === 'success') {
+                    return AuthResult::fromArray($decoded);
+                }
             }
         }
 
@@ -56,10 +58,8 @@ class SocialAuth
             }
 
             $result = nativephp_call('SocialAuth.GoogleSignIn', json_encode($params));
-            self::$lastRawResponse = $result;
             if ($result) {
                 $decoded = json_decode($result, true);
-                // Try both possible response structures
                 if (isset($decoded['data']) && ($decoded['data']['status'] ?? '') === 'success') {
                     return AuthResult::fromArray($decoded['data']);
                 }
