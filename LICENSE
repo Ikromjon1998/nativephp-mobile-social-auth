@@ -1,0 +1,73 @@
+Copyright (c) 2026-present Ikromjon Abdullo. All rights reserved.
+
+This End User License Agreement ("Agreement") is a legal agreement between you ("Licensee") and Ikromjon Abdullo ("Licensor") for the use of this software package ("Software").
+
+By installing, copying, or otherwise using the Software, you agree to be bound by the terms of this Agreement. If you do not agree to the terms of this Agreement, do not install or use the Software.
+
+1. GRANT OF LICENSE
+
+Subject to the terms of this Agreement and payment of applicable license fees, Licensor grants Licensee a limited, non-exclusive, non-transferable license to:
+
+a) Install and use the Software on projects owned or controlled by Licensee
+b) Access updates and bug fixes during the active license period
+c) Use the Software's source code solely for integration with Licensee's projects
+
+License Scope:
+- Per-Seat License: Each license is valid for one (1) developer seat
+- Additional developer seats require additional license purchases
+- A "seat" is defined as an individual developer who accesses or modifies the Software's source code
+
+2. RESTRICTIONS
+
+Licensee shall NOT:
+
+a) Redistribute, sublicense, sell, lease, or transfer the Software or any portion thereof to any third party
+b) Make the Software available on any public repository, package registry, or file-sharing service
+c) Remove or alter any proprietary notices, labels, or marks on the Software
+d) Use the Software to create a competing product or service
+e) Reverse engineer, decompile, or disassemble the Software, except to the extent expressly permitted by applicable law
+f) Share license credentials or access tokens with unauthorized parties
+
+3. DISTRIBUTION
+
+The Software is distributed exclusively through Licensor's authorized distribution channels. Licensee agrees to:
+
+a) Keep all access credentials and authentication tokens confidential
+b) Not circumvent or attempt to circumvent distribution access controls
+c) Only download the Software using authorized methods provided by Licensor
+
+4. UPDATES AND SUPPORT
+
+a) License includes updates and bug fixes for twelve (12) months from the date of purchase ("Update Period")
+b) After the Update Period expires, Licensee may continue using the last version received, but will not receive further updates without renewal
+c) Renewal of the Update Period is available at Licensor's then-current rates
+d) Support is provided at Licensor's discretion and may be subject to additional terms
+
+5. OWNERSHIP
+
+The Software is licensed, not sold. Licensor retains all right, title, and interest in and to the Software, including all intellectual property rights. This Agreement does not grant Licensee any rights to trademarks or service marks of Licensor.
+
+6. TERMINATION
+
+a) This Agreement is effective until terminated
+b) Licensor may terminate this Agreement immediately if Licensee breaches any term of this Agreement
+c) Upon termination, Licensee must cease all use of the Software and destroy all copies in Licensee's possession
+d) Sections 2, 5, 7, and 8 shall survive termination
+
+7. DISCLAIMER OF WARRANTIES
+
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+8. LIMITATION OF LIABILITY
+
+IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, DATA, OR USE.
+
+Licensor's total liability shall not exceed the amount paid by Licensee for the software license.
+
+9. GOVERNING LAW
+
+This Agreement shall be governed by and construed in accordance with the applicable laws of the jurisdiction in which the Licensor resides, without regard to its conflict of law provisions.
+
+10. ENTIRE AGREEMENT
+
+This Agreement constitutes the entire agreement between the parties concerning the subject matter hereof and supersedes all prior or contemporaneous agreements, understandings, negotiations, and discussions.

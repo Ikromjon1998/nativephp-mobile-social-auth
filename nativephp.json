@@ -1,0 +1,68 @@
+{
+    "namespace": "SocialAuth",
+    "bridge_functions": [
+        {
+            "name": "SocialAuth.AppleSignIn",
+            "android": "com.ikromjon.plugins.socialauth.SocialAuthFunctions.AppleSignIn",
+            "ios": "SocialAuthFunctions.AppleSignIn",
+            "description": "Initiate native Apple Sign-In flow"
+        },
+        {
+            "name": "SocialAuth.GoogleSignIn",
+            "android": "com.ikromjon.plugins.socialauth.SocialAuthFunctions.GoogleSignIn",
+            "ios": "SocialAuthFunctions.GoogleSignIn",
+            "description": "Initiate native Google Sign-In flow"
+        },
+        {
+            "name": "SocialAuth.CheckAppleCredentialState",
+            "android": "com.ikromjon.plugins.socialauth.SocialAuthFunctions.CheckAppleCredentialState",
+            "ios": "SocialAuthFunctions.CheckAppleCredentialState",
+            "description": "Check if an Apple Sign-In credential is still valid"
+        },
+        {
+            "name": "SocialAuth.SignOut",
+            "android": "com.ikromjon.plugins.socialauth.SocialAuthFunctions.SignOut",
+            "ios": "SocialAuthFunctions.SignOut",
+            "description": "Sign out from Google (Apple has no sign-out API)"
+        }
+    ],
+    "events": [
+        "Ikromjon\\NativePHP\\SocialAuth\\Events\\AppleSignInCompleted",
+        "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
+        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed"
+    ],
+    "android": {
+        "min_version": 29,
+        "dependencies": {
+            "implementation": [
+                "androidx.credentials:credentials:1.6.0",
+                "androidx.credentials:credentials-play-services-auth:1.6.0",
+                "com.google.android.libraries.identity.googleid:googleid:1.1.1"
+            ]
+        }
+    },
+    "ios": {
+        "min_version": "18.0",
+        "entitlements": {
+            "com.apple.developer.applesignin": ["Default"]
+        },
+        "dependencies": {
+            "pods": [
+                {
+                    "name": "GoogleSignIn",
+                    "version": "~> 8.0"
+                }
+            ]
+        }
+    },
+    "secrets": {
+        "GOOGLE_IOS_CLIENT_ID": {
+            "description": "Google OAuth iOS Client ID from Google Cloud Console",
+            "required": true
+        },
+        "GOOGLE_SERVER_CLIENT_ID": {
+            "description": "Google OAuth Server/Web Client ID for backend token verification",
+            "required": true
+        }
+    }
+}
