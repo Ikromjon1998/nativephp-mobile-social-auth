@@ -15,23 +15,26 @@ import com.nativephp.mobile.bridge.BridgeFunction
 import com.nativephp.mobile.bridge.BridgeResponse
 import com.nativephp.mobile.utils.NativeActionCoordinator
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.suspendCancellableCoroutine
+import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
-import kotlin.coroutines.resume
 
 object SocialAuthFunctions {
 
     // Apple Sign-In is not supported natively on Android
     class AppleSignIn(private val activity: FragmentActivity) : BridgeFunction {
         override fun execute(parameters: Map<String, Any>): Map<String, Any> {
-            NativeActionCoordinator.dispatchEvent(
-                "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
-                mapOf(
-                    "provider" to "apple",
-                    "error" to "Apple Sign-In is not available on Android",
-                    "errorCode" to "UNSUPPORTED_PLATFORM"
+            val payload = JSONObject().apply {
+                put("provider", "apple")
+                put("error", "Apple Sign-In is not available on Android")
+                put("errorCode", "UNSUPPORTED_PLATFORM")
+            }
+            Handler(Looper.getMainLooper()).post {
+                NativeActionCoordinator.dispatchEvent(
+                    activity,
+                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                    payload.toString()
                 )
-            )
+            }
 
             return BridgeResponse.error(
                 "UNSUPPORTED_PLATFORM",
@@ -44,17 +47,21 @@ object SocialAuthFunctions {
         override fun execute(parameters: Map<String, Any>): Map<String, Any> {
             val nonce = parameters["nonce"] as? String
 
-            // Read server client ID from NativePHP secrets/config
+            // Read server client ID from Android meta-data (injected via nativephp.json secrets)
             val serverClientId = getServerClientId()
             if (serverClientId.isNullOrEmpty()) {
-                NativeActionCoordinator.dispatchEvent(
-                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
-                    mapOf(
-                        "provider" to "google",
-                        "error" to "GOOGLE_SERVER_CLIENT_ID is not configured",
-                        "errorCode" to "MISSING_CONFIG"
+                val payload = JSONObject().apply {
+                    put("provider", "google")
+                    put("error", "GOOGLE_SERVER_CLIENT_ID is not configured")
+                    put("errorCode", "MISSING_CONFIG")
+                }
+                Handler(Looper.getMainLooper()).post {
+                    NativeActionCoordinator.dispatchEvent(
+                        activity,
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                        payload.toString()
                     )
-                )
+                }
                 return BridgeResponse.error(
                     "MISSING_CONFIG",
                     "GOOGLE_SERVER_CLIENT_ID is not configured. Add it to your .env file."
@@ -106,14 +113,18 @@ object SocialAuthFunctions {
                     else -> "UNKNOWN"
                 }
 
-                NativeActionCoordinator.dispatchEvent(
-                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
-                    mapOf(
-                        "provider" to "google",
-                        "error" to (error.message ?: "Google Sign-In failed"),
-                        "errorCode" to errorCode
+                val payload = JSONObject().apply {
+                    put("provider", "google")
+                    put("error", error.message ?: "Google Sign-In failed")
+                    put("errorCode", errorCode)
+                }
+                Handler(Looper.getMainLooper()).post {
+                    NativeActionCoordinator.dispatchEvent(
+                        activity,
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                        payload.toString()
                     )
-                )
+                }
 
                 return BridgeResponse.error(
                     "GOOGLE_SIGN_IN_FAILED",
@@ -130,14 +141,18 @@ object SocialAuthFunctions {
             try {
                 googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
             } catch (e: Exception) {
-                NativeActionCoordinator.dispatchEvent(
-                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
-                    mapOf(
-                        "provider" to "google",
-                        "error" to "Failed to parse Google credential: ${e.message}",
-                        "errorCode" to "PARSE_ERROR"
+                val payload = JSONObject().apply {
+                    put("provider", "google")
+                    put("error", "Failed to parse Google credential: ${e.message}")
+                    put("errorCode", "PARSE_ERROR")
+                }
+                Handler(Looper.getMainLooper()).post {
+                    NativeActionCoordinator.dispatchEvent(
+                        activity,
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                        payload.toString()
                     )
-                )
+                }
                 return BridgeResponse.error("PARSE_ERROR", "Failed to parse Google credential: ${e.message}")
             }
 
@@ -156,22 +171,26 @@ object SocialAuthFunctions {
             // Email is typically the ID for Google credentials
             resultData["email"] = googleIdTokenCredential.id
 
-            NativeActionCoordinator.dispatchEvent(
-                "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
-                mapOf(
-                    "userId" to (resultData["userId"] as? String ?: ""),
-                    "identityToken" to (resultData["identityToken"] as? String ?: ""),
-                    "email" to (resultData["email"] as? String ?: ""),
-                    "displayName" to (resultData["displayName"] as? String ?: ""),
-                    "photoUrl" to (resultData["photoUrl"] as? String ?: "")
+            val eventPayload = JSONObject().apply {
+                put("userId", resultData["userId"] as? String ?: "")
+                put("identityToken", resultData["identityToken"] as? String ?: "")
+                put("email", resultData["email"] as? String ?: "")
+                put("displayName", resultData["displayName"] as? String ?: "")
+                put("photoUrl", resultData["photoUrl"] as? String ?: "")
+            }
+            Handler(Looper.getMainLooper()).post {
+                NativeActionCoordinator.dispatchEvent(
+                    activity,
+                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
+                    eventPayload.toString()
                 )
-            )
+            }
 
             return BridgeResponse.success(resultData)
         }
 
         private fun getServerClientId(): String? {
-            // Try reading from app metadata (set via NativePHP secrets)
+            // Read from Android meta-data (injected by NativePHP via nativephp.json secrets)
             try {
                 val appInfo = activity.packageManager.getApplicationInfo(
                     activity.packageName,
@@ -184,7 +203,7 @@ object SocialAuthFunctions {
                 }
             } catch (_: Exception) {}
 
-            // Try reading from resources (string resource)
+            // Fallback: try reading from string resources
             try {
                 val resId = activity.resources.getIdentifier(
                     "google_server_client_id", "string", activity.packageName
@@ -207,14 +226,6 @@ object SocialAuthFunctions {
 
     class SignOut(private val activity: FragmentActivity) : BridgeFunction {
         override fun execute(parameters: Map<String, Any>): Map<String, Any> {
-            // Credential Manager doesn't have a built-in sign-out,
-            // but we can clear any cached credentials
-            try {
-                val credentialManager = CredentialManager.create(activity)
-                // Clear credential state is handled by the app's own session management
-                // The Credential Manager does not maintain sign-in state
-            } catch (_: Exception) {}
-
             return BridgeResponse.success(mapOf("signedOut" to true))
         }
     }

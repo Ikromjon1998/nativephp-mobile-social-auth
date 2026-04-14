@@ -75,20 +75,22 @@ enum SocialAuthFunctions {
                 }
 
                 // Dispatch failure event
-                LaravelBridge.shared.send(
-                    event: "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
-                    payload: [
-                        "provider": "apple",
-                        "error": error.localizedDescription,
-                        "errorCode": errorCode,
-                    ]
-                )
+                DispatchQueue.main.async {
+                    LaravelBridge.shared.send?(
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                        [
+                            "provider": "apple",
+                            "error": error.localizedDescription,
+                            "errorCode": errorCode,
+                        ]
+                    )
+                }
 
-                return BridgeResponse.error("APPLE_SIGN_IN_FAILED", error.localizedDescription)
+                return BridgeResponse.error(code: "APPLE_SIGN_IN_FAILED", message: error.localizedDescription)
             }
 
             guard let credential = delegate.credential else {
-                return BridgeResponse.error("APPLE_SIGN_IN_FAILED", "No credential received")
+                return BridgeResponse.error(code: "APPLE_SIGN_IN_FAILED", message: "No credential received")
             }
 
             var result: [String: Any] = [
@@ -142,19 +144,21 @@ enum SocialAuthFunctions {
             }
 
             // Dispatch success event
-            LaravelBridge.shared.send(
-                event: "Ikromjon\\NativePHP\\SocialAuth\\Events\\AppleSignInCompleted",
-                payload: [
-                    "userId": credential.user,
-                    "identityToken": result["identityToken"] as? String ?? "",
-                    "authorizationCode": result["authorizationCode"] as? String ?? "",
-                    "email": result["email"] as? String ?? "",
-                    "givenName": result["givenName"] as? String ?? "",
-                    "familyName": result["familyName"] as? String ?? "",
-                ]
-            )
+            DispatchQueue.main.async {
+                LaravelBridge.shared.send?(
+                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\AppleSignInCompleted",
+                    [
+                        "userId": credential.user,
+                        "identityToken": result["identityToken"] as? String ?? "",
+                        "authorizationCode": result["authorizationCode"] as? String ?? "",
+                        "email": result["email"] as? String ?? "",
+                        "givenName": result["givenName"] as? String ?? "",
+                        "familyName": result["familyName"] as? String ?? "",
+                    ]
+                )
+            }
 
-            return BridgeResponse.success(result)
+            return BridgeResponse.success(data: result)
         }
     }
 
@@ -211,20 +215,22 @@ enum SocialAuthFunctions {
                     errorCode = "UNKNOWN"
                 }
 
-                LaravelBridge.shared.send(
-                    event: "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
-                    payload: [
-                        "provider": "google",
-                        "error": error.localizedDescription,
-                        "errorCode": errorCode,
-                    ]
-                )
+                DispatchQueue.main.async {
+                    LaravelBridge.shared.send?(
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                        [
+                            "provider": "google",
+                            "error": error.localizedDescription,
+                            "errorCode": errorCode,
+                        ]
+                    )
+                }
 
-                return BridgeResponse.error("GOOGLE_SIGN_IN_FAILED", error.localizedDescription)
+                return BridgeResponse.error(code: "GOOGLE_SIGN_IN_FAILED", message: error.localizedDescription)
             }
 
             guard let result = signInResult else {
-                return BridgeResponse.error("GOOGLE_SIGN_IN_FAILED", "No sign-in result received")
+                return BridgeResponse.error(code: "GOOGLE_SIGN_IN_FAILED", message: "No sign-in result received")
             }
 
             let user = result.user
@@ -260,18 +266,20 @@ enum SocialAuthFunctions {
                 responseData["authorizationCode"] = serverAuthCode
             }
 
-            LaravelBridge.shared.send(
-                event: "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
-                payload: [
-                    "userId": responseData["userId"] as? String ?? "",
-                    "identityToken": responseData["identityToken"] as? String ?? "",
-                    "email": responseData["email"] as? String ?? "",
-                    "displayName": responseData["displayName"] as? String ?? "",
-                    "photoUrl": responseData["photoUrl"] as? String ?? "",
-                ]
-            )
+            DispatchQueue.main.async {
+                LaravelBridge.shared.send?(
+                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
+                    [
+                        "userId": responseData["userId"] as? String ?? "",
+                        "identityToken": responseData["identityToken"] as? String ?? "",
+                        "email": responseData["email"] as? String ?? "",
+                        "displayName": responseData["displayName"] as? String ?? "",
+                        "photoUrl": responseData["photoUrl"] as? String ?? "",
+                    ]
+                )
+            }
 
-            return BridgeResponse.success(responseData)
+            return BridgeResponse.success(data: responseData)
         }
     }
 
@@ -280,7 +288,7 @@ enum SocialAuthFunctions {
     class CheckAppleCredentialState: BridgeFunction {
         func execute(parameters: [String: Any]) throws -> [String: Any] {
             guard let userId = parameters["userId"] as? String else {
-                return BridgeResponse.error("INVALID_PARAMS", "userId is required")
+                return BridgeResponse.error(code: "INVALID_PARAMS", message: "userId is required")
             }
 
             let provider = ASAuthorizationAppleIDProvider()
@@ -309,7 +317,7 @@ enum SocialAuthFunctions {
 
             semaphore.wait()
 
-            return BridgeResponse.success(["state": credentialState])
+            return BridgeResponse.success(data: ["state": credentialState])
         }
     }
 
@@ -318,7 +326,7 @@ enum SocialAuthFunctions {
     class SignOut: BridgeFunction {
         func execute(parameters: [String: Any]) throws -> [String: Any] {
             GIDSignIn.sharedInstance.signOut()
-            return BridgeResponse.success(["signedOut": true])
+            return BridgeResponse.success(data: ["signedOut": true])
         }
     }
 }
