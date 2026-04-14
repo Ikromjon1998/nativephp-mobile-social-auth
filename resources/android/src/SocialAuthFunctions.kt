@@ -14,9 +14,10 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.nativephp.mobile.bridge.BridgeFunction
 import com.nativephp.mobile.bridge.BridgeResponse
 import com.nativephp.mobile.utils.NativeActionCoordinator
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.util.concurrent.CountDownLatch
 
 object SocialAuthFunctions {
 
@@ -84,109 +85,63 @@ object SocialAuthFunctions {
                 .addCredentialOption(googleIdOption)
                 .build()
 
-            val latch = CountDownLatch(1)
-            var credentialResponse: GetCredentialResponse? = null
-            var credentialError: GetCredentialException? = null
+            // Launch async — return immediately, deliver result via events
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    val response = credentialManager.getCredential(
+                        context = activity,
+                        request = request
+                    )
 
-            Handler(Looper.getMainLooper()).post {
-                runBlocking {
-                    try {
-                        credentialResponse = credentialManager.getCredential(
-                            context = activity,
-                            request = request
-                        )
-                    } catch (e: GetCredentialException) {
-                        credentialError = e
-                    } finally {
-                        latch.countDown()
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(response.credential.data)
+
+                    val eventPayload = JSONObject().apply {
+                        put("provider", "google")
+                        put("userId", googleIdTokenCredential.id)
+                        put("identityToken", googleIdTokenCredential.idToken)
+                        put("email", googleIdTokenCredential.id)
+                        put("displayName", googleIdTokenCredential.displayName ?: "")
+                        put("givenName", googleIdTokenCredential.givenName ?: "")
+                        put("familyName", googleIdTokenCredential.familyName ?: "")
+                        put("photoUrl", googleIdTokenCredential.profilePictureUri?.toString() ?: "")
                     }
-                }
-            }
-
-            latch.await()
-
-            if (credentialError != null) {
-                val error = credentialError!!
-                val errorCode = when (error) {
-                    is GetCredentialCancellationException -> "CANCELED"
-                    is NoCredentialException -> "NO_CREDENTIAL"
-                    else -> "UNKNOWN"
-                }
-
-                val payload = JSONObject().apply {
-                    put("provider", "google")
-                    put("error", error.message ?: "Google Sign-In failed")
-                    put("errorCode", errorCode)
-                }
-                Handler(Looper.getMainLooper()).post {
+                    NativeActionCoordinator.dispatchEvent(
+                        activity,
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
+                        eventPayload.toString()
+                    )
+                } catch (e: GetCredentialException) {
+                    val errorCode = when (e) {
+                        is GetCredentialCancellationException -> "CANCELED"
+                        is NoCredentialException -> "NO_CREDENTIAL"
+                        else -> "UNKNOWN"
+                    }
+                    val payload = JSONObject().apply {
+                        put("provider", "google")
+                        put("error", e.message ?: "Google Sign-In failed")
+                        put("errorCode", errorCode)
+                    }
+                    NativeActionCoordinator.dispatchEvent(
+                        activity,
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                        payload.toString()
+                    )
+                } catch (e: Exception) {
+                    val payload = JSONObject().apply {
+                        put("provider", "google")
+                        put("error", "Failed to parse Google credential: ${e.message}")
+                        put("errorCode", "PARSE_ERROR")
+                    }
                     NativeActionCoordinator.dispatchEvent(
                         activity,
                         "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
                         payload.toString()
                     )
                 }
-
-                return BridgeResponse.error(
-                    "GOOGLE_SIGN_IN_FAILED",
-                    error.message ?: "Google Sign-In failed"
-                )
             }
 
-            val response = credentialResponse
-                ?: return BridgeResponse.error("GOOGLE_SIGN_IN_FAILED", "No credential response received")
-
-            val credential = response.credential
-
-            val googleIdTokenCredential: GoogleIdTokenCredential
-            try {
-                googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-            } catch (e: Exception) {
-                val payload = JSONObject().apply {
-                    put("provider", "google")
-                    put("error", "Failed to parse Google credential: ${e.message}")
-                    put("errorCode", "PARSE_ERROR")
-                }
-                Handler(Looper.getMainLooper()).post {
-                    NativeActionCoordinator.dispatchEvent(
-                        activity,
-                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
-                        payload.toString()
-                    )
-                }
-                return BridgeResponse.error("PARSE_ERROR", "Failed to parse Google credential: ${e.message}")
-            }
-
-            val resultData = mutableMapOf<String, Any>(
-                "status" to "success",
-                "provider" to "google",
-                "identityToken" to googleIdTokenCredential.idToken
-            )
-
-            googleIdTokenCredential.id.let { resultData["userId"] = it }
-            googleIdTokenCredential.displayName?.let { resultData["displayName"] = it }
-            googleIdTokenCredential.givenName?.let { resultData["givenName"] = it }
-            googleIdTokenCredential.familyName?.let { resultData["familyName"] = it }
-            googleIdTokenCredential.profilePictureUri?.toString()?.let { resultData["photoUrl"] = it }
-
-            // Email is typically the ID for Google credentials
-            resultData["email"] = googleIdTokenCredential.id
-
-            val eventPayload = JSONObject().apply {
-                put("userId", resultData["userId"] as? String ?: "")
-                put("identityToken", resultData["identityToken"] as? String ?: "")
-                put("email", resultData["email"] as? String ?: "")
-                put("displayName", resultData["displayName"] as? String ?: "")
-                put("photoUrl", resultData["photoUrl"] as? String ?: "")
-            }
-            Handler(Looper.getMainLooper()).post {
-                NativeActionCoordinator.dispatchEvent(
-                    activity,
-                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
-                    eventPayload.toString()
-                )
-            }
-
-            return BridgeResponse.success(resultData)
+            // Return immediately — result comes via events
+            return BridgeResponse.success(mapOf("status" to "pending", "provider" to "google"))
         }
 
         private fun getServerClientId(): String? {
