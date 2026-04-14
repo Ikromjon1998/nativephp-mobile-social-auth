@@ -274,6 +274,8 @@ enum SocialAuthFunctions {
                         "identityToken": responseData["identityToken"] as? String ?? "",
                         "email": responseData["email"] as? String ?? "",
                         "displayName": responseData["displayName"] as? String ?? "",
+                        "givenName": responseData["givenName"] as? String ?? "",
+                        "familyName": responseData["familyName"] as? String ?? "",
                         "photoUrl": responseData["photoUrl"] as? String ?? "",
                     ]
                 )

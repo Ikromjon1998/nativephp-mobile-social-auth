@@ -1,16 +1,18 @@
 # NativePHP Mobile Social Auth
 
-Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Provides native authentication UI (not browser-based redirects) for a seamless sign-in experience.
+Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native platform SDKs (not browser-based redirects) for a seamless sign-in experience.
+
+> **App Store Requirement:** If your app offers any third-party sign-in (Google, Facebook, etc.), Apple requires you to also offer Sign in with Apple. Apps that don't comply will be rejected during App Store review. ([Apple Guideline 4.8](https://developer.apple.com/app-store/review/guidelines/#sign-in-with-apple))
 
 ## Features
 
-- **Apple Sign-In** — Native `ASAuthorizationController` on iOS (required by App Store for apps with third-party login)
-- **Google Sign-In** — Native Google Sign-In SDK on iOS, Credential Manager on Android
-- **Identity tokens** — JWT tokens for server-side verification
-- **User info** — Name, email, profile photo
-- **Nonce support** — Replay protection for both providers
-- **Credential state** — Check if Apple credential is still valid
-- **Events** — Livewire `#[OnNative]` and JS `On()` event listeners
+- **Apple Sign-In** -- Native `ASAuthorizationController` on iOS with Face ID / Touch ID
+- **Google Sign-In** -- Native Credential Manager on Android, Google Sign-In SDK on iOS
+- **Identity tokens** -- JWT tokens for server-side verification
+- **User info** -- Name, email, profile photo
+- **Nonce support** -- Replay protection for both providers
+- **Credential state** -- Check if an Apple credential is still valid
+- **Events** -- Livewire `#[OnNative]` and JS event listeners
 
 ## Platform Support
 
@@ -18,18 +20,16 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Provides nati
 |---------|-----|---------|
 | Apple Sign-In | Yes | No (Apple limitation) |
 | Google Sign-In | Yes | Yes |
-| Credential State Check | Yes | No |
-| Sign Out | Yes (Google only) | Yes (Google only) |
-
-> Apple Sign-In is only available on iOS. On Android, calling `appleSignIn()` returns `null` and dispatches a `SignInFailed` event. Apple does not provide a native Android SDK for Sign in with Apple.
+| Credential State Check | Yes (Apple) | No |
+| Sign Out | Yes (Google) | Yes (Google) |
 
 ## Requirements
 
 - PHP 8.2+
 - Laravel 11, 12, or 13
 - NativePHP Mobile 3.x
-- iOS 18.0+
-- Android API 29+
+- iOS 18.0+ / Android API 29+
+- Apple Developer account (for Apple Sign-In entitlement)
 
 ## Installation
 
@@ -39,26 +39,96 @@ composer require ikromjon/nativephp-mobile-social-auth
 
 The service provider and facade are auto-discovered by Laravel.
 
-## Configuration
+Then rebuild your native project to include the plugin's native dependencies:
 
-### Google Sign-In Setup
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create OAuth 2.0 credentials:
-   - **iOS Client ID** — for the iOS app
-   - **Web Client ID** — for server-side token verification (used as `serverClientId`)
-3. Add to your `.env` file:
-
-```env
-GOOGLE_IOS_CLIENT_ID=your-ios-client-id.apps.googleusercontent.com
-GOOGLE_SERVER_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+```bash
+php artisan native:install --force
 ```
 
-### Apple Sign-In Setup
+## Configuration
 
-Apple Sign-In requires the `com.apple.developer.applesignin` entitlement, which is automatically added by this plugin via `nativephp.json`. Ensure your Apple Developer account has "Sign in with Apple" enabled for your App ID.
+### 1. Google Cloud Console Setup
+
+You need **two** OAuth client IDs from the same Google Cloud project:
+
+**Step 1: Create a project & consent screen**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select existing)
+3. Go to **APIs & Services > OAuth consent screen**
+4. Choose **External**, fill in app name and email
+5. Add scopes: `email`, `profile`
+6. Add your test email under **Test users** (required while in testing mode)
+
+**Step 2: Create an Android OAuth client**
+1. Go to **Credentials > Create Credentials > OAuth client ID**
+2. Application type: **Android**
+3. Package name: your `NATIVEPHP_APP_ID` from `.env` (e.g. `com.yourcompany.yourapp`)
+4. SHA-1 fingerprint -- get it with:
+   ```bash
+   cd nativephp/android && ./gradlew signingReport
+   ```
+5. Click **Create** (you won't use this client ID directly -- Google uses it to verify your app's signing key)
+
+**Step 3: Create a Web OAuth client**
+1. **Credentials > Create Credentials > OAuth client ID**
+2. Application type: **Web application**
+3. No redirect URIs needed
+4. Click **Create**
+5. Copy the **Client ID** -- this is your `GOOGLE_SERVER_CLIENT_ID`
+
+**Step 4: Create an iOS OAuth client** (if targeting iOS)
+1. **Credentials > Create Credentials > OAuth client ID**
+2. Application type: **iOS**
+3. Bundle ID: your `NATIVEPHP_APP_ID` from `.env`
+4. Click **Create**
+5. Copy the **Client ID** -- this is your `GOOGLE_IOS_CLIENT_ID`
+
+> **Why three client IDs?** The Android client verifies your app's signing key. The Web client ID is used by Android Credential Manager and for backend token verification. The iOS client ID configures the Google Sign-In SDK on iOS.
+
+**Step 5: Add credentials to your `.env`**
+
+```env
+GOOGLE_IOS_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+GOOGLE_SERVER_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
+```
+
+NativePHP's build system reads these from `.env` and injects them into the native apps automatically.
+
+**Android additional step:** Add the Web Client ID to your Android string resources:
+
+```xml
+<!-- nativephp/android/app/src/main/res/values/strings.xml -->
+<resources>
+    <string name="google_server_client_id">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+</resources>
+```
+
+### 2. Apple Sign-In Setup
+
+The `com.apple.developer.applesignin` entitlement is automatically added by this plugin. You need to:
+
+1. Log in to [Apple Developer Portal](https://developer.apple.com/account)
+2. Go to **Certificates, Identifiers & Profiles > Identifiers**
+3. Select your App ID (matching `NATIVEPHP_APP_ID`)
+4. Enable **Sign in with Apple** capability
+5. Save
+
+No `.env` configuration needed for Apple -- it uses the native iOS SDK directly.
 
 ## Usage
+
+### Important: Platform Behavior Differences
+
+| | iOS | Android |
+|---|---|---|
+| **Apple Sign-In** | Returns `AuthResult` directly | Returns `null` (unsupported) |
+| **Google Sign-In** | Returns `AuthResult` directly | Returns `null`; result arrives via event |
+
+On **iOS**, bridge calls block until the user completes or cancels sign-in, then return the result.
+
+On **Android**, Google Sign-In is asynchronous -- the call returns immediately, and the result is delivered via `GoogleSignInCompleted` or `SignInFailed` events.
+
+**Recommended pattern:** Always use event listeners AND check the return value. This ensures your code works on both platforms:
 
 ### Livewire (Recommended)
 
@@ -67,91 +137,91 @@ Apple Sign-In requires the `com.apple.developer.applesignin` entitlement, which 
 
 namespace App\Livewire;
 
-use Ikromjon\NativePHP\SocialAuth\Facades\SocialAuth;
+use Ikromjon\NativePHP\SocialAuth\Data\AuthResult;
 use Ikromjon\NativePHP\SocialAuth\Events\AppleSignInCompleted;
 use Ikromjon\NativePHP\SocialAuth\Events\GoogleSignInCompleted;
 use Ikromjon\NativePHP\SocialAuth\Events\SignInFailed;
-use Livewire\Attributes\OnNative;
+use Ikromjon\NativePHP\SocialAuth\Facades\SocialAuth;
 use Livewire\Component;
+use Native\Mobile\Attributes\OnNative;
 
 class LoginScreen extends Component
 {
     public ?string $error = null;
 
-    public function signInWithApple(): void
+    public function signInWithApple()
     {
-        // Generate a nonce for security (hash it with SHA256 for Apple)
         $rawNonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $rawNonce]);
 
+        // iOS: returns AuthResult directly
+        // Android: returns null (Apple Sign-In not available)
         $result = SocialAuth::appleSignIn(
             scopes: ['email', 'fullName'],
             nonce: hash('sha256', $rawNonce),
         );
 
         if ($result) {
-            // First sign-in: email and name are available
-            // Subsequent sign-ins: only userId and identityToken
-            $this->handleAppleAuth($result);
+            $this->handleSignIn($result->toArray());
         }
     }
 
-    public function signInWithGoogle(): void
+    public function signInWithGoogle()
     {
         $nonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $nonce]);
 
+        // iOS: returns AuthResult directly
+        // Android: returns null, result comes via event below
         $result = SocialAuth::googleSignIn(nonce: $nonce);
 
         if ($result) {
-            $this->handleGoogleAuth($result);
+            $this->handleSignIn($result->toArray());
         }
     }
 
+    // Handles results on BOTH platforms (iOS also fires events)
     #[OnNative(AppleSignInCompleted::class)]
-    public function onAppleSignIn($payload): void
+    public function onAppleSignIn($payload = [])
     {
-        // Alternative: handle via event instead of return value
+        if (!empty($payload)) {
+            $this->handleSignIn(array_merge($payload, ['provider' => 'apple']));
+        }
     }
 
     #[OnNative(GoogleSignInCompleted::class)]
-    public function onGoogleSignIn($payload): void
+    public function onGoogleSignIn($payload = [])
     {
-        // Alternative: handle via event instead of return value
+        if (!empty($payload)) {
+            $this->handleSignIn(array_merge($payload, ['provider' => 'google']));
+        }
     }
 
     #[OnNative(SignInFailed::class)]
-    public function onSignInFailed($payload): void
+    public function onSignInFailed($payload = [])
     {
-        if ($payload['errorCode'] !== 'CANCELED') {
-            $this->error = $payload['error'];
+        if (($payload['errorCode'] ?? '') !== 'CANCELED') {
+            $this->error = $payload['error'] ?? 'Sign-in failed.';
         }
+    }
+
+    private function handleSignIn(array $data)
+    {
+        // Verify identity token server-side, then create/find user
+        // IMPORTANT: Apple only sends email/name on FIRST sign-in!
+        // You must persist this data immediately.
+        return $this->redirect('/dashboard');
     }
 
     public function render()
     {
         return view('livewire.login-screen');
     }
-
-    private function handleAppleAuth($result): void
-    {
-        // Verify identity token server-side with Apple's public keys
-        // Create or find user, log them in
-        // IMPORTANT: Apple only sends email/name on FIRST sign-in!
-        // You must persist this data immediately.
-    }
-
-    private function handleGoogleAuth($result): void
-    {
-        // Verify identity token with Google
-        // Create or find user, log them in
-    }
 }
 ```
 
 ```blade
 {{-- resources/views/livewire/login-screen.blade.php --}}
-
 <div class="flex flex-col gap-4 p-6">
     @if($error)
         <div class="bg-red-100 text-red-700 p-3 rounded">{{ $error }}</div>
@@ -173,122 +243,163 @@ class LoginScreen extends Component
 </div>
 ```
 
-### React / Vue / Svelte (JavaScript)
+### JavaScript (Vue / React / Inertia)
 
 ```javascript
-import { On, Off } from '#nativephp';
+import { On } from '#nativephp';
 import socialAuth from 'vendor/ikromjon/nativephp-mobile-social-auth/resources/js/social-auth';
 
-// Apple Sign-In
-async function handleAppleSignIn() {
-    try {
-        const result = await socialAuth.appleSignIn(['email', 'fullName'], nonce);
-        if (result) {
-            console.log('Apple user:', result.userId);
-            console.log('ID token:', result.identityToken);
-            // Send token to your backend for verification
-        }
-    } catch (error) {
-        console.error('Apple Sign-In failed:', error);
-    }
+// Generate nonce client-side
+function generateNonce() {
+    const array = new Uint8Array(16);
+    crypto.getRandomValues(array);
+    return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // Google Sign-In
 async function handleGoogleSignIn() {
-    try {
-        const result = await socialAuth.googleSignIn(nonce);
-        if (result) {
-            console.log('Google user:', result.email);
-            console.log('ID token:', result.identityToken);
-        }
-    } catch (error) {
-        console.error('Google Sign-In failed:', error);
+    const nonce = generateNonce();
+    const result = await socialAuth.googleSignIn(nonce);
+    // On iOS: result contains data. On Android: result is null, use event.
+    if (result?.identityToken) {
+        sendTokenToBackend(result.identityToken);
     }
 }
 
-// Listen for events
+// Apple Sign-In
+async function handleAppleSignIn() {
+    const nonce = generateNonce();
+    // Apple expects SHA-256 hashed nonce -- hash it before passing
+    const result = await socialAuth.appleSignIn(['email', 'fullName'], nonce);
+    if (result?.identityToken) {
+        sendTokenToBackend(result.identityToken);
+    }
+}
+
+// Listen for events (works on both platforms, required for Android)
+On('Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted', (payload) => {
+    sendTokenToBackend(payload.identityToken);
+});
+
+On('Ikromjon\\NativePHP\\SocialAuth\\Events\\AppleSignInCompleted', (payload) => {
+    sendTokenToBackend(payload.identityToken);
+});
+
 On('Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed', (payload) => {
     if (payload.errorCode !== 'CANCELED') {
         alert(`Sign-in failed: ${payload.error}`);
     }
 });
-
-// Sign out from Google
-await socialAuth.signOut();
-
-// Check Apple credential validity
-const state = await socialAuth.checkAppleCredentialState('apple-user-id');
-// state: 'authorized', 'revoked', 'not_found', 'transferred', 'unknown'
 ```
 
 ## API Reference
 
 ### `SocialAuth::appleSignIn(array $scopes, ?string $nonce, ?string $state): ?AuthResult`
 
-Initiates native Apple Sign-In. Returns `AuthResult` on success, `null` on failure.
+Initiates native Apple Sign-In. Returns `AuthResult` on iOS, `null` on Android.
 
-**Parameters:**
-- `$scopes` — Requested scopes: `['email', 'fullName']` (default: both)
-- `$nonce` — SHA256-hashed nonce for replay protection
-- `$state` — Optional state string echoed back in response
+- `$scopes` -- Requested scopes: `['email', 'fullName']` (default: both)
+- `$nonce` -- SHA256-hashed nonce for replay protection
+- `$state` -- Optional state string echoed back in response
 
-**Important:** Apple only returns `email` and `givenName`/`familyName` on the **first** sign-in. Subsequent sign-ins return only `userId` and `identityToken`. You must persist user info on first authentication.
+> **Important:** Apple only returns `email` and `givenName`/`familyName` on the **first** sign-in. Subsequent sign-ins return only `userId` and `identityToken`. You must persist user info on first authentication.
 
 ### `SocialAuth::googleSignIn(?string $nonce): ?AuthResult`
 
-Initiates native Google Sign-In. Returns `AuthResult` on success, `null` on failure.
+Initiates native Google Sign-In. Returns `AuthResult` on iOS, `null` on Android (result via event).
 
-**Parameters:**
-- `$nonce` — Optional nonce for replay protection
+- `$nonce` -- Optional nonce for replay protection (raw string, not hashed)
 
 ### `SocialAuth::checkAppleCredentialState(string $userId): string`
 
 Checks if an Apple credential is still valid. iOS only.
 
-**Returns:** `'authorized'`, `'revoked'`, `'not_found'`, `'transferred'`, or `'unknown'`
+Returns: `'authorized'`, `'revoked'`, `'not_found'`, `'transferred'`, or `'unknown'`
 
 ### `SocialAuth::signOut(): bool`
 
-Signs out from Google. Apple Sign-In has no sign-out API.
+Signs out from Google and clears credential state. Apple has no sign-out API.
 
-### AuthResult Data Class
+### AuthResult
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `provider` | `string` | `'apple'` or `'google'` |
-| `userId` | `?string` | Unique user identifier |
-| `identityToken` | `?string` | JWT for server-side verification |
-| `authorizationCode` | `?string` | One-time code for token exchange |
-| `accessToken` | `?string` | OAuth access token (Google only) |
-| `email` | `?string` | User email |
-| `givenName` | `?string` | First name |
-| `familyName` | `?string` | Last name |
-| `displayName` | `?string` | Full display name |
-| `photoUrl` | `?string` | Profile photo URL (Google only) |
-| `nonce` | `?string` | Echoed nonce |
-| `state` | `?string` | Echoed state (Apple only) |
-| `realUserStatus` | `?string` | Apple fraud detection: `'likelyReal'`, `'unknown'`, `'unsupported'` |
+| Property | Type | Apple | Google |
+|----------|------|-------|--------|
+| `provider` | `string` | `'apple'` | `'google'` |
+| `userId` | `?string` | Unique Apple user ID | Google user ID |
+| `identityToken` | `?string` | JWT | JWT |
+| `authorizationCode` | `?string` | One-time code | Server auth code |
+| `accessToken` | `?string` | -- | OAuth access token |
+| `email` | `?string` | First sign-in only | Always |
+| `givenName` | `?string` | First sign-in only | Always |
+| `familyName` | `?string` | First sign-in only | Always |
+| `displayName` | `?string` | First sign-in only | Always |
+| `photoUrl` | `?string` | -- | Profile photo URL |
+| `nonce` | `?string` | Echoed | Echoed |
+| `state` | `?string` | Echoed | -- |
+| `realUserStatus` | `?string` | `'likelyReal'` / `'unknown'` | -- |
 
 ### Events
 
-| Event | When | Payload |
-|-------|------|---------|
-| `AppleSignInCompleted` | Apple Sign-In succeeds | `userId`, `identityToken`, `authorizationCode`, `email`, `givenName`, `familyName` |
-| `GoogleSignInCompleted` | Google Sign-In succeeds | `userId`, `identityToken`, `email`, `displayName`, `photoUrl` |
-| `SignInFailed` | Any sign-in fails | `provider`, `error`, `errorCode` |
+| Event | Payload |
+|-------|---------|
+| `AppleSignInCompleted` | `userId`, `identityToken`, `authorizationCode`, `email`, `givenName`, `familyName` |
+| `GoogleSignInCompleted` | `userId`, `identityToken`, `email`, `displayName`, `givenName`, `familyName`, `photoUrl` |
+| `SignInFailed` | `provider`, `error`, `errorCode` |
 
 **Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `UNKNOWN`
 
 ## Server-Side Token Verification
 
-The identity tokens returned by both providers are JWTs that should be verified server-side:
+Identity tokens are JWTs that **must** be verified server-side before trusting the user's identity:
 
-- **Apple:** Verify against Apple's public keys at `https://appleid.apple.com/auth/keys`
-- **Google:** Verify against Google's public keys at `https://www.googleapis.com/oauth2/v3/certs`
+```php
+use Firebase\JWT\JWT;
+use Firebase\JWT\JWK;
 
-Use a JWT library like `firebase/php-jwt` for verification.
+// Google verification
+$googleKeys = json_decode(
+    file_get_contents('https://www.googleapis.com/oauth2/v3/certs'), true
+);
+$decoded = JWT::decode($identityToken, JWK::parseKeySet($googleKeys));
+// Verify: $decoded->aud === your GOOGLE_SERVER_CLIENT_ID
+// Verify: $decoded->iss === 'https://accounts.google.com'
+
+// Apple verification
+$appleKeys = json_decode(
+    file_get_contents('https://appleid.apple.com/auth/keys'), true
+);
+$decoded = JWT::decode($identityToken, JWK::parseKeySet($appleKeys));
+// Verify: $decoded->aud === your app's bundle ID
+// Verify: $decoded->iss === 'https://appleid.apple.com'
+```
+
+Install the JWT library: `composer require firebase/php-jwt`
+
+## Troubleshooting
+
+**"Developer console is not set up correctly" (Android)**
+- Ensure you have BOTH an Android client AND a Web client in the same Google Cloud project
+- The `google_server_client_id` in `strings.xml` must be the **Web** client ID, not the Android one
+- The Android client must have the correct package name and SHA-1 fingerprint
+
+**"MISSING_CONFIG" error**
+- Check that `GOOGLE_SERVER_CLIENT_ID` is set in `.env`
+- Check that `google_server_client_id` string resource exists in `nativephp/android/app/src/main/res/values/strings.xml`
+
+**Google Sign-In returns null on Android**
+- This is expected. On Android, Google Sign-In is async. Use `#[OnNative(GoogleSignInCompleted::class)]` to receive the result.
+
+**Apple email/name are null**
+- Apple only provides email and name on the **first** sign-in. After that, only `userId` and `identityToken` are returned. To reset during development: Settings > Apple ID > Sign-In & Security > Sign in with Apple > Your App > Stop Using Apple ID.
+
+**App Store rejection for missing Apple Sign-In**
+- If your app offers Google (or any third-party) sign-in, you must also offer Apple Sign-In. This plugin handles both.
 
 ## Support
 
 - Issues: [GitHub Issues](https://github.com/Ikromjon1998/nativephp-mobile-social-auth/issues)
 - Email: ikromjon98.98@icloud.com
+
+## License
+
+Proprietary. See [LICENSE](LICENSE) for details.

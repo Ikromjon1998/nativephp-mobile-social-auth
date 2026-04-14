@@ -182,6 +182,23 @@ object SocialAuthFunctions {
 
     class SignOut(private val activity: FragmentActivity) : BridgeFunction {
         override fun execute(parameters: Map<String, Any>): Map<String, Any> {
+            val credentialManager = CredentialManager.create(activity)
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var clearError: Exception? = null
+
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    credentialManager.clearCredentialState(
+                        androidx.credentials.ClearCredentialStateRequest()
+                    )
+                } catch (e: Exception) {
+                    clearError = e
+                } finally {
+                    latch.countDown()
+                }
+            }
+
+            latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
             return BridgeResponse.success(mapOf("signedOut" to true))
         }
     }
