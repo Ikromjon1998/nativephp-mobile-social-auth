@@ -184,18 +184,10 @@ enum SocialAuthFunctions {
                     return
                 }
 
-                if let nonce = nonce {
-                    GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController, hint: nil, additionalScopes: nil, nonce: nonce) { result, error in
-                        signInResult = result
-                        signInError = error
-                        semaphore.signal()
-                    }
-                } else {
-                    GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, error in
-                        signInResult = result
-                        signInError = error
-                        semaphore.signal()
-                    }
+                GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, error in
+                    signInResult = result
+                    signInError = error
+                    semaphore.signal()
                 }
             }
 
