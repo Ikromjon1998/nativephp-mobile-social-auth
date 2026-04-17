@@ -95,11 +95,21 @@ object SocialAuthFunctions {
 
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(response.credential.data)
 
+                    // .id is the user's email; use idToken subject as stable userId
+                    val email = googleIdTokenCredential.id
+                    val stableUserId = try {
+                        val parts = googleIdTokenCredential.idToken.split(".")
+                        if (parts.size >= 2) {
+                            val payload = String(android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP))
+                            JSONObject(payload).optString("sub", email)
+                        } else email
+                    } catch (_: Exception) { email }
+
                     val eventPayload = JSONObject().apply {
                         put("provider", "google")
-                        put("userId", googleIdTokenCredential.id)
+                        put("userId", stableUserId)
                         put("identityToken", googleIdTokenCredential.idToken)
-                        put("email", googleIdTokenCredential.id)
+                        put("email", email)
                         put("displayName", googleIdTokenCredential.displayName ?: "")
                         put("givenName", googleIdTokenCredential.givenName ?: "")
                         put("familyName", googleIdTokenCredential.familyName ?: "")
@@ -199,6 +209,14 @@ object SocialAuthFunctions {
             }
 
             latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+
+            if (clearError != null) {
+                return BridgeResponse.error(
+                    "SIGN_OUT_FAILED",
+                    "Failed to clear credential state: ${clearError?.message}"
+                )
+            }
+
             return BridgeResponse.success(mapOf("signedOut" to true))
         }
     }
