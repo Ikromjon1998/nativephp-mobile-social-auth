@@ -25,7 +25,7 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native p
 
 ## Requirements
 
-- PHP 8.2+
+- PHP 8.3+
 - Laravel 11, 12, or 13
 - NativePHP Mobile 3.x
 - iOS 18.0+ / Android API 29+
@@ -92,16 +92,7 @@ GOOGLE_IOS_CLIENT_ID=123456789-abc.apps.googleusercontent.com
 GOOGLE_SERVER_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
 ```
 
-NativePHP's build system reads these from `.env` and injects them into the native apps automatically.
-
-**Android additional step:** Add the Web Client ID to your Android string resources:
-
-```xml
-<!-- nativephp/android/app/src/main/res/values/strings.xml -->
-<resources>
-    <string name="google_server_client_id">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
-</resources>
-```
+The plugin reads `GOOGLE_SERVER_CLIENT_ID` from your `.env` at runtime and passes it to the native SDK automatically. No manual Android string resources needed.
 
 ### 2. Apple Sign-In Setup
 
@@ -180,28 +171,62 @@ class LoginScreen extends Component
         }
     }
 
-    // Handles results on BOTH platforms (iOS also fires events)
+    // Event handlers use NAMED PARAMETERS matching the event payload keys.
+    // Do NOT use a single $data array — Livewire dispatches each key as a named argument.
+
     #[OnNative(AppleSignInCompleted::class)]
-    public function onAppleSignIn($payload = [])
-    {
-        if (!empty($payload)) {
-            $this->handleSignIn(array_merge($payload, ['provider' => 'apple']));
+    public function onAppleSignIn(
+        string $userId = '',
+        ?string $identityToken = null,
+        ?string $authorizationCode = null,
+        ?string $email = null,
+        ?string $givenName = null,
+        ?string $familyName = null,
+    ) {
+        if (!empty($userId)) {
+            $this->handleSignIn([
+                'provider' => 'apple',
+                'userId' => $userId,
+                'identityToken' => $identityToken,
+                'email' => $email,
+                'givenName' => $givenName,
+                'familyName' => $familyName,
+            ]);
         }
     }
 
     #[OnNative(GoogleSignInCompleted::class)]
-    public function onGoogleSignIn($payload = [])
-    {
-        if (!empty($payload)) {
-            $this->handleSignIn(array_merge($payload, ['provider' => 'google']));
+    public function onGoogleSignIn(
+        string $userId = '',
+        ?string $identityToken = null,
+        ?string $email = null,
+        ?string $displayName = null,
+        ?string $givenName = null,
+        ?string $familyName = null,
+        ?string $photoUrl = null,
+    ) {
+        if (!empty($userId)) {
+            $this->handleSignIn([
+                'provider' => 'google',
+                'userId' => $userId,
+                'identityToken' => $identityToken,
+                'email' => $email,
+                'displayName' => $displayName,
+                'givenName' => $givenName,
+                'familyName' => $familyName,
+                'photoUrl' => $photoUrl,
+            ]);
         }
     }
 
     #[OnNative(SignInFailed::class)]
-    public function onSignInFailed($payload = [])
-    {
-        if (($payload['errorCode'] ?? '') !== 'CANCELED') {
-            $this->error = $payload['error'] ?? 'Sign-in failed.';
+    public function onSignInFailed(
+        string $provider = '',
+        string $error = '',
+        ?string $errorCode = null,
+    ) {
+        if ($errorCode !== 'CANCELED') {
+            $this->error = !empty($error) ? $error : 'Sign-in failed.';
         }
     }
 
@@ -379,12 +404,10 @@ Install the JWT library: `composer require firebase/php-jwt`
 
 **"Developer console is not set up correctly" (Android)**
 - Ensure you have BOTH an Android client AND a Web client in the same Google Cloud project
-- The `google_server_client_id` in `strings.xml` must be the **Web** client ID, not the Android one
 - The Android client must have the correct package name and SHA-1 fingerprint
 
 **"MISSING_CONFIG" error**
-- Check that `GOOGLE_SERVER_CLIENT_ID` is set in `.env`
-- Check that `google_server_client_id` string resource exists in `nativephp/android/app/src/main/res/values/strings.xml`
+- Check that `GOOGLE_SERVER_CLIENT_ID` is set in your `.env` file
 
 **Google Sign-In returns null on Android**
 - This is expected. On Android, Google Sign-In is async. Use `#[OnNative(GoogleSignInCompleted::class)]` to receive the result.

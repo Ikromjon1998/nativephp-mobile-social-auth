@@ -57,6 +57,11 @@ class SocialAuth
                 $params['nonce'] = $nonce;
             }
 
+            $serverClientId = config('services.google.client_id') ?: env('GOOGLE_SERVER_CLIENT_ID');
+            if ($serverClientId) {
+                $params['serverClientId'] = $serverClientId;
+            }
+
             $result = nativephp_call('SocialAuth.GoogleSignIn', json_encode($params));
             if ($result) {
                 $decoded = json_decode($result, true);

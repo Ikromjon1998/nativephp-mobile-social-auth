@@ -48,8 +48,9 @@ object SocialAuthFunctions {
         override fun execute(parameters: Map<String, Any>): Map<String, Any> {
             val nonce = parameters["nonce"] as? String
 
-            // Read server client ID from Android meta-data (injected via nativephp.json secrets)
-            val serverClientId = getServerClientId()
+            // Read server client ID: prefer parameter from PHP, fall back to Android resources/meta-data
+            val serverClientId = (parameters["serverClientId"] as? String)?.takeIf { it.isNotEmpty() }
+                ?: getServerClientId()
             if (serverClientId.isNullOrEmpty()) {
                 val payload = JSONObject().apply {
                     put("provider", "google")
