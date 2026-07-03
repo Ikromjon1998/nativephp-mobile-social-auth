@@ -184,18 +184,12 @@ enum SocialAuthFunctions {
                     return
                 }
 
-                if let nonce = nonce {
-                    GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController, hint: nil, additionalScopes: nil, nonce: nonce) { result, error in
-                        signInResult = result
-                        signInError = error
-                        semaphore.signal()
-                    }
-                } else {
-                    GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, error in
-                        signInResult = result
-                        signInError = error
-                        semaphore.signal()
-                    }
+                // The nonce overload requires GoogleSignIn-iOS >= 9.0 (pinned in
+                // nativephp.json); passing nil behaves like the base overload.
+                GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController, hint: nil, additionalScopes: nil, nonce: nonce) { result, error in
+                    signInResult = result
+                    signInError = error
+                    semaphore.signal()
                 }
             }
 

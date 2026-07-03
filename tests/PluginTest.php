@@ -87,6 +87,25 @@ test('swift file contains all bridge function classes', function () {
     expect($swift)->toContain('class SignOut: BridgeFunction');
 });
 
+// The signIn(withPresenting:hint:additionalScopes:nonce:completion:) overload only
+// exists in GoogleSignIn-iOS >= 9.0 — no stable 8.x release has a nonce API (issue #1)
+
+test('google sign-in pod version supports the nonce overload used in swift', function () {
+    $swift = file_get_contents(dirname(__DIR__).'/resources/ios/Sources/SocialAuthFunctions.swift');
+    $manifest = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    $pod = collect($manifest['ios']['dependencies']['pods'])->firstWhere('name', 'GoogleSignIn');
+    expect($pod)->not->toBeNull();
+
+    // Deliberately loose pattern: over-matching can only make this test fail when it
+    // needn't (safe); a stricter pattern could silently stop matching after a refactor
+    // and let a pod downgrade slip through unnoticed
+    if (preg_match('/\.signIn\s*\(.*?nonce\s*:/s', $swift)) {
+        preg_match('/(\d+)/', $pod['version'], $matches);
+        expect((int) ($matches[1] ?? 0))->toBeGreaterThanOrEqual(9);
+    }
+});
+
 // Kotlin bridge function classes exist
 
 test('kotlin file contains all bridge function classes', function () {

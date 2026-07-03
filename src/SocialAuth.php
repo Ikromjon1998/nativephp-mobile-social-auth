@@ -47,7 +47,7 @@ class SocialAuth
      *
      * Returns user credentials including ID token, access token, and user profile.
      *
-     * @param  string|null  $nonce  Optional nonce for replay protection
+     * @param  string|null  $nonce  Optional nonce for replay protection (raw string; returned as the `nonce` claim inside the ID token)
      */
     public function googleSignIn(?string $nonce = null): ?AuthResult
     {

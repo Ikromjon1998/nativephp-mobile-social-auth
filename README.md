@@ -281,6 +281,11 @@ function generateNonce() {
     return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+async function sha256Hex(value) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // Google Sign-In
 async function handleGoogleSignIn() {
     const nonce = generateNonce();
@@ -293,9 +298,9 @@ async function handleGoogleSignIn() {
 
 // Apple Sign-In
 async function handleAppleSignIn() {
-    const nonce = generateNonce();
-    // Apple expects SHA-256 hashed nonce -- hash it before passing
-    const result = await socialAuth.appleSignIn(['email', 'fullName'], nonce);
+    const rawNonce = generateNonce();
+    // Apple expects the SHA-256 hash of the nonce -- keep rawNonce for server-side verification
+    const result = await socialAuth.appleSignIn(['email', 'fullName'], await sha256Hex(rawNonce));
     if (result?.identityToken) {
         sendTokenToBackend(result.identityToken);
     }
@@ -333,7 +338,7 @@ Initiates native Apple Sign-In. Returns `AuthResult` on iOS, `null` on Android.
 
 Initiates native Google Sign-In. Returns `AuthResult` on iOS, `null` on Android (result via event).
 
-- `$nonce` -- Optional nonce for replay protection (raw string, not hashed)
+- `$nonce` -- Optional nonce for replay protection (raw string, not hashed). Supported on both platforms: Android via Credential Manager, iOS via GoogleSignIn-iOS 9.x. The nonce comes back as the `nonce` claim inside the ID token -- verify it server-side.
 
 ### `SocialAuth::checkAppleCredentialState(string $userId): string`
 
@@ -359,7 +364,7 @@ Signs out from Google and clears credential state. Apple has no sign-out API.
 | `familyName` | `?string` | First sign-in only | Always |
 | `displayName` | `?string` | First sign-in only | Always |
 | `photoUrl` | `?string` | -- | Profile photo URL |
-| `nonce` | `?string` | Echoed | Echoed |
+| `nonce` | `?string` | Returned as `nonce` claim inside `identityToken` | Returned as `nonce` claim inside `identityToken` |
 | `state` | `?string` | Echoed | -- |
 | `realUserStatus` | `?string` | `'likelyReal'` / `'unknown'` | -- |
 
@@ -388,6 +393,8 @@ $googleKeys = json_decode(
 $decoded = JWT::decode($identityToken, JWK::parseKeySet($googleKeys));
 // Verify: $decoded->aud === your GOOGLE_SERVER_CLIENT_ID
 // Verify: $decoded->iss === 'https://accounts.google.com'
+// If you passed a nonce to googleSignIn():
+// Verify: $decoded->nonce === session('auth_nonce')
 
 // Apple verification
 $appleKeys = json_decode(
@@ -396,11 +403,16 @@ $appleKeys = json_decode(
 $decoded = JWT::decode($identityToken, JWK::parseKeySet($appleKeys));
 // Verify: $decoded->aud === your app's bundle ID
 // Verify: $decoded->iss === 'https://appleid.apple.com'
+// If you passed a nonce to appleSignIn() (SHA-256 of the raw nonce):
+// Verify: $decoded->nonce === hash('sha256', session('auth_nonce'))
 ```
 
 Install the JWT library: `composer require firebase/php-jwt`
 
 ## Troubleshooting
+
+**iOS build fails: `error: extra arguments at positions #4, #5 in call` in SocialAuthFunctions.swift**
+- Plugin versions up to 1.0.1 pinned GoogleSignIn-iOS `~> 8.0` while calling the nonce sign-in overload, which only exists in GoogleSignIn-iOS 9.0+. Upgrade the plugin (`composer update ikromjon/nativephp-mobile-social-auth`), then run `php artisan native:install --force` so the regenerated Podfile resolves GoogleSignIn `~> 9.0`. If CocoaPods then reports a dependency conflict, another pod in your project is pinning AppAuth 1.x / GTMAppAuth 4.x -- update that dependency, since GoogleSignIn 9.x requires AppAuth 2.x and GTMAppAuth 5.x.
 
 **"Developer console is not set up correctly" (Android)**
 - Ensure you have BOTH an Android client AND a Web client in the same Google Cloud project
