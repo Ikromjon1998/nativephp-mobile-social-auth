@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- iOS: Google ID tokens are now issued with `aud` = `GOOGLE_SERVER_CLIENT_ID` (added `GIDServerClientID` to the generated Info.plist), matching Android and the README's server-side verification instructions. Previously iOS tokens carried the iOS client ID as `aud`, so verification that worked on Android failed on iOS. This also makes GoogleSignIn-iOS populate `serverAuthCode` (returned as `authorizationCode`), which was always missing on iOS before.
+
+### Upgrade notes
+- Run `php artisan native:install --force` after upgrading — the manifest change adds `GIDServerClientID` to the regenerated Info.plist.
+- Server-side: iOS clients still on plugin ≤ 1.0.2 send Google ID tokens with `aud` = the iOS client ID; temporarily accept both audiences during rollout if you have existing installs.
+
 ## [1.0.2] - 2026-07-03
 
 ### Fixed
