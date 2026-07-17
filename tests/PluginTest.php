@@ -40,6 +40,13 @@ test('each bridge function has ios and android mappings', function () {
     }
 });
 
+test('ios info plist configures google client ids', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    expect($json['ios']['info_plist']['GIDClientID'])->toBe('${GOOGLE_IOS_CLIENT_ID}');
+    expect($json['ios']['info_plist']['GIDServerClientID'])->toBe('${GOOGLE_SERVER_CLIENT_ID}');
+});
+
 test('events are registered in manifest', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
 

@@ -380,7 +380,11 @@ Signs out from Google and clears credential state. Apple has no sign-out API.
 
 ## Server-Side Token Verification
 
-Identity tokens are JWTs that **must** be verified server-side before trusting the user's identity:
+Identity tokens are JWTs that **must** be verified server-side before trusting the user's identity.
+
+Google ID tokens from **both** platforms carry `aud` = your `GOOGLE_SERVER_CLIENT_ID` (Android sets it via `setServerClientId`, iOS via the `GIDServerClientID` Info.plist key), so the single `aud` check below covers both.
+
+> **Migration note:** On iOS, plugin versions ≤ 1.0.2 issued Google ID tokens with `aud` = your `GOOGLE_IOS_CLIENT_ID`. If you have existing installs, temporarily accept both audiences server-side until all clients are updated.
 
 ```php
 use Firebase\JWT\JWT;
