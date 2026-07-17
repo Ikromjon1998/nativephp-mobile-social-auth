@@ -65,7 +65,7 @@ class SocialAuth
                 $params['nonce'] = $nonce;
             }
 
-            $serverClientId = config('services.google.client_id') ?: env('GOOGLE_SERVER_CLIENT_ID');
+            $serverClientId = config('social-auth.google_server_client_id') ?: config('services.google.client_id');
             if ($serverClientId) {
                 $params['serverClientId'] = $serverClientId;
             }

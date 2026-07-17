@@ -92,7 +92,13 @@ GOOGLE_IOS_CLIENT_ID=123456789-abc.apps.googleusercontent.com
 GOOGLE_SERVER_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
 ```
 
-The plugin reads `GOOGLE_SERVER_CLIENT_ID` from your `.env` at runtime and passes it to the native SDK automatically. No manual Android string resources needed.
+The plugin picks up `GOOGLE_SERVER_CLIENT_ID` from your `.env` out of the box — it is read through the plugin's own `social-auth` config, so it keeps working after `php artisan config:cache` — and passes it to the native SDK automatically. No manual Android string resources needed.
+
+To customize, you can optionally publish the config file:
+
+```bash
+php artisan vendor:publish --tag=social-auth-config
+```
 
 ### 2. Apple Sign-In Setup
 
