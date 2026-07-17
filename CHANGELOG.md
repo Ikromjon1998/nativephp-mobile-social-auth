@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.1.0-beta.1] - 2026-07-17
 
 ### Fixed
 - iOS: Google ID tokens are now issued with `aud` = `GOOGLE_SERVER_CLIENT_ID` (added `GIDServerClientID` to the generated Info.plist), matching Android and the README's server-side verification instructions. Previously iOS tokens carried the iOS client ID as `aud`, so verification that worked on Android failed on iOS. This also makes GoogleSignIn-iOS populate `serverAuthCode` (returned as `authorizationCode`), which was always missing on iOS before.
