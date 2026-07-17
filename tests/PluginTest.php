@@ -69,6 +69,16 @@ test('composer.json has nativephp manifest reference', function () {
     expect($json['extra']['nativephp']['manifest'])->toBe('nativephp.json');
 });
 
+// Config file
+
+test('config file exists and defines google server client id', function () {
+    $path = dirname(__DIR__).'/config/social-auth.php';
+    expect(file_exists($path))->toBeTrue();
+
+    $config = require $path;
+    expect($config)->toBeArray()->toHaveKey('google_server_client_id');
+});
+
 // Native code existence
 
 test('swift bridge functions file exists', function () {
