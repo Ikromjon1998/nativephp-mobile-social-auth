@@ -12,6 +12,10 @@ class SocialAuth
      * Returns user credentials including identity token, authorization code,
      * and user info (email/name only on first sign-in).
      *
+     * Prefer handling the result via the AppleSignInCompleted event; on iOS
+     * the same result is also dispatched as an event, so handling both the
+     * return value and the event runs your handler twice.
+     *
      * @param  array<string>  $scopes  Requested scopes: 'email', 'fullName'
      * @param  string|null  $nonce  Optional nonce for replay protection (hash with SHA256 before passing)
      * @param  string|null  $state  Optional state parameter echoed back in response
@@ -46,6 +50,10 @@ class SocialAuth
      * Initiate native Google Sign-In.
      *
      * Returns user credentials including ID token, access token, and user profile.
+     *
+     * Prefer handling the result via the GoogleSignInCompleted event; on iOS
+     * the same result is also dispatched as an event, so handling both the
+     * return value and the event runs your handler twice.
      *
      * @param  string|null  $nonce  Optional nonce for replay protection (raw string; returned as the `nonce` claim inside the ID token)
      */

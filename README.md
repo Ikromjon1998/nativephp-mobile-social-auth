@@ -115,11 +115,11 @@ No `.env` configuration needed for Apple -- it uses the native iOS SDK directly.
 | **Apple Sign-In** | Returns `AuthResult` directly | Returns `null` (unsupported) |
 | **Google Sign-In** | Returns `AuthResult` directly | Returns `null`; result arrives via event |
 
-On **iOS**, bridge calls block until the user completes or cancels sign-in, then return the result.
+On **iOS**, bridge calls block until the user completes or cancels sign-in, then return the result synchronously. The **same result is also dispatched** as an `AppleSignInCompleted` / `GoogleSignInCompleted` event — the synchronous return is a convenience only.
 
 On **Android**, Google Sign-In is asynchronous -- the call returns immediately, and the result is delivered via `GoogleSignInCompleted` or `SignInFailed` events.
 
-**Recommended pattern:** Always use event listeners AND check the return value. This ensures your code works on both platforms:
+**Recommended pattern:** Handle results via event listeners as the **single** handling path — events fire on both platforms. Do not handle the return value AND register listeners for the same sign-in, or your handler runs twice on iOS:
 
 ### Livewire (Recommended)
 
@@ -145,16 +145,13 @@ class LoginScreen extends Component
         $rawNonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $rawNonce]);
 
-        // iOS: returns AuthResult directly
-        // Android: returns null (Apple Sign-In not available)
-        $result = SocialAuth::appleSignIn(
+        // The result is handled by the #[OnNative] listeners below --
+        // identically on iOS and Android. (On iOS the call also returns
+        // the result synchronously; it is intentionally unused here.)
+        SocialAuth::appleSignIn(
             scopes: ['email', 'fullName'],
             nonce: hash('sha256', $rawNonce),
         );
-
-        if ($result) {
-            $this->handleSignIn($result->toArray());
-        }
     }
 
     public function signInWithGoogle()
@@ -162,13 +159,10 @@ class LoginScreen extends Component
         $nonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $nonce]);
 
-        // iOS: returns AuthResult directly
-        // Android: returns null, result comes via event below
-        $result = SocialAuth::googleSignIn(nonce: $nonce);
-
-        if ($result) {
-            $this->handleSignIn($result->toArray());
-        }
+        // The result is handled by the #[OnNative] listeners below --
+        // identically on iOS and Android. (On iOS the call also returns
+        // the result synchronously; it is intentionally unused here.)
+        SocialAuth::googleSignIn(nonce: $nonce);
     }
 
     // Event handlers use NAMED PARAMETERS matching the event payload keys.
@@ -289,24 +283,20 @@ async function sha256Hex(value) {
 // Google Sign-In
 async function handleGoogleSignIn() {
     const nonce = generateNonce();
-    const result = await socialAuth.googleSignIn(nonce);
-    // On iOS: result contains data. On Android: result is null, use event.
-    if (result?.identityToken) {
-        sendTokenToBackend(result.identityToken);
-    }
+    // The result is handled by the On(...) listeners below -- identically
+    // on iOS and Android. (On iOS the promise also resolves with the
+    // result; it is intentionally unused here.)
+    await socialAuth.googleSignIn(nonce);
 }
 
 // Apple Sign-In
 async function handleAppleSignIn() {
     const rawNonce = generateNonce();
     // Apple expects the SHA-256 hash of the nonce -- keep rawNonce for server-side verification
-    const result = await socialAuth.appleSignIn(['email', 'fullName'], await sha256Hex(rawNonce));
-    if (result?.identityToken) {
-        sendTokenToBackend(result.identityToken);
-    }
+    await socialAuth.appleSignIn(['email', 'fullName'], await sha256Hex(rawNonce));
 }
 
-// Listen for events (works on both platforms, required for Android)
+// Single handling path: these events fire on both platforms
 On('Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted', (payload) => {
     sendTokenToBackend(payload.identityToken);
 });
