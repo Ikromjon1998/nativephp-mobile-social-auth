@@ -1,5 +1,10 @@
 # NativePHP Mobile Social Auth
 
+[![Tests](https://github.com/Ikromjon1998/nativephp-mobile-social-auth/actions/workflows/tests.yml/badge.svg)](https://github.com/Ikromjon1998/nativephp-mobile-social-auth/actions/workflows/tests.yml)
+[![NativePHP Plugin](https://img.shields.io/badge/NativePHP-Plugin-6d28d9)](https://nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth)
+[![PHP](https://img.shields.io/badge/PHP-8.3%2B-777bb4)](composer.json)
+[![License: Commercial](https://img.shields.io/badge/License-Commercial-blue)](LICENSE)
+
 Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native platform SDKs (not browser-based redirects) for a seamless sign-in experience.
 
 > **App Store Requirement:** If your app offers any third-party sign-in (Google, Facebook, etc.), Apple requires you to also offer Sign in with Apple. Apps that don't comply will be rejected during App Store review. ([Apple Guideline 4.8](https://developer.apple.com/app-store/review/guidelines/#sign-in-with-apple))
@@ -437,4 +442,8 @@ Install the JWT library: `composer require firebase/php-jwt`
 
 ## License
 
-Proprietary. See [LICENSE](LICENSE) for details.
+This is a **commercial plugin** distributed through the official NativePHP plugin marketplace:
+
+👉 **[nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth](https://nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth)**
+
+Use is governed by the [End User License Agreement](LICENSE). Redistribution or resale is not permitted.
