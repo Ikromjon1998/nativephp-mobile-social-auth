@@ -8,6 +8,8 @@ class SocialAuthServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->mergeConfigFrom(__DIR__.'/../config/social-auth.php', 'social-auth');
+
         $this->app->singleton(SocialAuth::class, function () {
             return new SocialAuth;
         });
@@ -15,6 +17,8 @@ class SocialAuthServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        $this->publishes([
+            __DIR__.'/../config/social-auth.php' => config_path('social-auth.php'),
+        ], 'social-auth-config');
     }
 }

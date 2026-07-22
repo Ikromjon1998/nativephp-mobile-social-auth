@@ -40,6 +40,13 @@ test('each bridge function has ios and android mappings', function () {
     }
 });
 
+test('ios info plist configures google client ids', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    expect($json['ios']['info_plist']['GIDClientID'])->toBe('${GOOGLE_IOS_CLIENT_ID}');
+    expect($json['ios']['info_plist']['GIDServerClientID'])->toBe('${GOOGLE_SERVER_CLIENT_ID}');
+});
+
 test('events are registered in manifest', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
 
@@ -60,6 +67,16 @@ test('composer.json has nativephp manifest reference', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/composer.json'), true);
 
     expect($json['extra']['nativephp']['manifest'])->toBe('nativephp.json');
+});
+
+// Config file
+
+test('config file exists and defines google server client id', function () {
+    $path = dirname(__DIR__).'/config/social-auth.php';
+    expect(file_exists($path))->toBeTrue();
+
+    $config = require $path;
+    expect($config)->toBeArray()->toHaveKey('google_server_client_id');
 });
 
 // Native code existence

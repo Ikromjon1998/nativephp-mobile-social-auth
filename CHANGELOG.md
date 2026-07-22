@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0-beta.1] - 2026-07-17
+
+### Fixed
+- iOS: Google ID tokens are now issued with `aud` = `GOOGLE_SERVER_CLIENT_ID` (added `GIDServerClientID` to the generated Info.plist), matching Android and the README's server-side verification instructions. Previously iOS tokens carried the iOS client ID as `aud`, so verification that worked on Android failed on iOS. This also makes GoogleSignIn-iOS populate `serverAuthCode` (returned as `authorizationCode`), which was always missing on iOS before.
+
+- `GOOGLE_SERVER_CLIENT_ID` was read with a raw `env()` call at runtime, which returns null once config is cached (`php artisan config:cache` / `optimize`) — producing `MISSING_CONFIG` errors only in production builds. It is now read from the plugin's mergeable `config/social-auth.php`; `config('services.google.client_id')` is still honored as a fallback for existing setups.
+
+### Added
+- Publishable config file: `php artisan vendor:publish --tag=social-auth-config`.
+
+### Changed
+- README examples now handle sign-in results exclusively via events — the single path that works identically on iOS and Android. The previous examples handled both the iOS synchronous return and the events, which ran sign-in handlers twice on iOS. (Docs and phpdoc only; native behavior is unchanged.)
+
+### Upgrade notes
+- Run `php artisan native:install --force` after upgrading — the manifest change adds `GIDServerClientID` to the regenerated Info.plist.
+- Server-side: iOS clients still on plugin ≤ 1.0.2 send Google ID tokens with `aud` = the iOS client ID; temporarily accept both audiences during rollout if you have existing installs.
+
 ## [1.0.2] - 2026-07-03
 
 ### Fixed

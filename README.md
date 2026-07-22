@@ -1,5 +1,10 @@
 # NativePHP Mobile Social Auth
 
+[![Tests](https://github.com/Ikromjon1998/nativephp-mobile-social-auth/actions/workflows/tests.yml/badge.svg)](https://github.com/Ikromjon1998/nativephp-mobile-social-auth/actions/workflows/tests.yml)
+[![NativePHP Plugin](https://img.shields.io/badge/NativePHP-Plugin-6d28d9)](https://nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth)
+[![PHP](https://img.shields.io/badge/PHP-8.3%2B-777bb4)](composer.json)
+[![License: Commercial](https://img.shields.io/badge/License-Commercial-blue)](LICENSE)
+
 Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native platform SDKs (not browser-based redirects) for a seamless sign-in experience.
 
 > **App Store Requirement:** If your app offers any third-party sign-in (Google, Facebook, etc.), Apple requires you to also offer Sign in with Apple. Apps that don't comply will be rejected during App Store review. ([Apple Guideline 4.8](https://developer.apple.com/app-store/review/guidelines/#sign-in-with-apple))
@@ -92,7 +97,13 @@ GOOGLE_IOS_CLIENT_ID=123456789-abc.apps.googleusercontent.com
 GOOGLE_SERVER_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
 ```
 
-The plugin reads `GOOGLE_SERVER_CLIENT_ID` from your `.env` at runtime and passes it to the native SDK automatically. No manual Android string resources needed.
+The plugin picks up `GOOGLE_SERVER_CLIENT_ID` from your `.env` out of the box — it is read through the plugin's own `social-auth` config, so it keeps working after `php artisan config:cache` — and passes it to the native SDK automatically. No manual Android string resources needed.
+
+To customize, you can optionally publish the config file:
+
+```bash
+php artisan vendor:publish --tag=social-auth-config
+```
 
 ### 2. Apple Sign-In Setup
 
@@ -115,11 +126,11 @@ No `.env` configuration needed for Apple -- it uses the native iOS SDK directly.
 | **Apple Sign-In** | Returns `AuthResult` directly | Returns `null` (unsupported) |
 | **Google Sign-In** | Returns `AuthResult` directly | Returns `null`; result arrives via event |
 
-On **iOS**, bridge calls block until the user completes or cancels sign-in, then return the result.
+On **iOS**, bridge calls block until the user completes or cancels sign-in, then return the result synchronously. The **same result is also dispatched** as an `AppleSignInCompleted` / `GoogleSignInCompleted` event — the synchronous return is a convenience only.
 
 On **Android**, Google Sign-In is asynchronous -- the call returns immediately, and the result is delivered via `GoogleSignInCompleted` or `SignInFailed` events.
 
-**Recommended pattern:** Always use event listeners AND check the return value. This ensures your code works on both platforms:
+**Recommended pattern:** Handle results via event listeners as the **single** handling path — events fire on both platforms. Do not handle the return value AND register listeners for the same sign-in, or your handler runs twice on iOS:
 
 ### Livewire (Recommended)
 
@@ -145,16 +156,13 @@ class LoginScreen extends Component
         $rawNonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $rawNonce]);
 
-        // iOS: returns AuthResult directly
-        // Android: returns null (Apple Sign-In not available)
-        $result = SocialAuth::appleSignIn(
+        // The result is handled by the #[OnNative] listeners below --
+        // identically on iOS and Android. (On iOS the call also returns
+        // the result synchronously; it is intentionally unused here.)
+        SocialAuth::appleSignIn(
             scopes: ['email', 'fullName'],
             nonce: hash('sha256', $rawNonce),
         );
-
-        if ($result) {
-            $this->handleSignIn($result->toArray());
-        }
     }
 
     public function signInWithGoogle()
@@ -162,13 +170,10 @@ class LoginScreen extends Component
         $nonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $nonce]);
 
-        // iOS: returns AuthResult directly
-        // Android: returns null, result comes via event below
-        $result = SocialAuth::googleSignIn(nonce: $nonce);
-
-        if ($result) {
-            $this->handleSignIn($result->toArray());
-        }
+        // The result is handled by the #[OnNative] listeners below --
+        // identically on iOS and Android. (On iOS the call also returns
+        // the result synchronously; it is intentionally unused here.)
+        SocialAuth::googleSignIn(nonce: $nonce);
     }
 
     // Event handlers use NAMED PARAMETERS matching the event payload keys.
@@ -289,24 +294,20 @@ async function sha256Hex(value) {
 // Google Sign-In
 async function handleGoogleSignIn() {
     const nonce = generateNonce();
-    const result = await socialAuth.googleSignIn(nonce);
-    // On iOS: result contains data. On Android: result is null, use event.
-    if (result?.identityToken) {
-        sendTokenToBackend(result.identityToken);
-    }
+    // The result is handled by the On(...) listeners below -- identically
+    // on iOS and Android. (On iOS the promise also resolves with the
+    // result; it is intentionally unused here.)
+    await socialAuth.googleSignIn(nonce);
 }
 
 // Apple Sign-In
 async function handleAppleSignIn() {
     const rawNonce = generateNonce();
     // Apple expects the SHA-256 hash of the nonce -- keep rawNonce for server-side verification
-    const result = await socialAuth.appleSignIn(['email', 'fullName'], await sha256Hex(rawNonce));
-    if (result?.identityToken) {
-        sendTokenToBackend(result.identityToken);
-    }
+    await socialAuth.appleSignIn(['email', 'fullName'], await sha256Hex(rawNonce));
 }
 
-// Listen for events (works on both platforms, required for Android)
+// Single handling path: these events fire on both platforms
 On('Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted', (payload) => {
     sendTokenToBackend(payload.identityToken);
 });
@@ -380,7 +381,11 @@ Signs out from Google and clears credential state. Apple has no sign-out API.
 
 ## Server-Side Token Verification
 
-Identity tokens are JWTs that **must** be verified server-side before trusting the user's identity:
+Identity tokens are JWTs that **must** be verified server-side before trusting the user's identity.
+
+Google ID tokens from **both** platforms carry `aud` = your `GOOGLE_SERVER_CLIENT_ID` (Android sets it via `setServerClientId`, iOS via the `GIDServerClientID` Info.plist key), so the single `aud` check below covers both.
+
+> **Migration note:** On iOS, plugin versions ≤ 1.0.2 issued Google ID tokens with `aud` = your `GOOGLE_IOS_CLIENT_ID`. If you have existing installs, temporarily accept both audiences server-side until all clients are updated.
 
 ```php
 use Firebase\JWT\JWT;
@@ -437,4 +442,8 @@ Install the JWT library: `composer require firebase/php-jwt`
 
 ## License
 
-Proprietary. See [LICENSE](LICENSE) for details.
+This is a **commercial plugin** distributed through the official NativePHP plugin marketplace:
+
+👉 **[nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth](https://nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth)**
+
+Use is governed by the [End User License Agreement](LICENSE). Redistribution or resale is not permitted.
