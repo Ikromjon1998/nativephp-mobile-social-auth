@@ -161,6 +161,41 @@ test('event classes exist', function () {
     expect(class_exists(SignInFailed::class))->toBeTrue();
 });
 
+// Native event payloads are spread as named arguments into the event constructors
+// (NativePHP does `new $event(...$payload)`), so any key a platform sends that the
+// constructor does not declare makes the event fail to dispatch -- silently.
+
+test('ios event payload keys match the event constructor', function (string $event, string $short) {
+    $source = file_get_contents(dirname(__DIR__).'/resources/ios/Sources/SocialAuthFunctions.swift');
+
+    expect(preg_match('/'.$short.'",\s*\[(.*?)\]\s*\)/s', $source, $payload))->toBe(1);
+
+    preg_match_all('/"([a-zA-Z]+)":/', $payload[1], $keys);
+    $parameters = array_map(fn ($p) => $p->getName(), (new ReflectionClass($event))->getConstructor()->getParameters());
+
+    expect($keys[1])->not->toBeEmpty();
+    expect(array_diff($keys[1], $parameters))->toBe([]);
+})->with([
+    [GoogleSignInCompleted::class, 'GoogleSignInCompleted'],
+    [AppleSignInCompleted::class, 'AppleSignInCompleted'],
+]);
+
+test('android google event payload keys match the event constructor', function () {
+    $source = file_get_contents(dirname(__DIR__).'/resources/android/src/SocialAuthFunctions.kt');
+
+    $marker = 'val eventPayload = JSONObject().apply {';
+    expect($source)->toContain($marker);
+
+    $body = substr($source, strpos($source, $marker) + strlen($marker));
+    $body = substr($body, 0, strpos($body, '}'));
+
+    preg_match_all('/put\("([a-zA-Z]+)"/', $body, $keys);
+    $parameters = array_map(fn ($p) => $p->getName(), (new ReflectionClass(GoogleSignInCompleted::class))->getConstructor()->getParameters());
+
+    expect($keys[1])->not->toBeEmpty();
+    expect(array_diff($keys[1], $parameters))->toBe([]);
+});
+
 // Data classes
 
 test('auth result serializes and deserializes correctly', function () {

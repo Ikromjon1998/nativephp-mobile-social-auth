@@ -107,7 +107,8 @@ object SocialAuthFunctions {
                     } catch (_: Exception) { email }
 
                     val eventPayload = JSONObject().apply {
-                        put("provider", "google")
+                        // No "provider" key: the payload is spread as named arguments into
+                        // GoogleSignInCompleted, which declares none. Keep this matching iOS.
                         put("userId", stableUserId)
                         put("identityToken", googleIdTokenCredential.idToken)
                         put("email", email)

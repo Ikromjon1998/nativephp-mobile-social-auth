@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - iOS: Google ID tokens are now issued with `aud` = `GOOGLE_SERVER_CLIENT_ID` (added `GIDServerClientID` to the generated Info.plist), matching Android and the README's server-side verification instructions. Previously iOS tokens carried the iOS client ID as `aud`, so verification that worked on Android failed on iOS. This also makes GoogleSignIn-iOS populate `serverAuthCode` (returned as `authorizationCode`), which was always missing on iOS before.
 
+- Android: `GoogleSignInCompleted` never reached PHP. The native payload carried a `provider` key that the event constructor does not declare, and NativePHP dispatches events via `new $event(...$payload)` — so every successful Android Google sign-in died with `Unknown named parameter $provider`, which the NativePHP bridge swallows silently. The key is now omitted, making the Android payload identical to the iOS one. This matters especially alongside the events-only guidance below, which relies on the event firing on both platforms.
+
 - `GOOGLE_SERVER_CLIENT_ID` was read with a raw `env()` call at runtime, which returns null once config is cached (`php artisan config:cache` / `optimize`) — producing `MISSING_CONFIG` errors only in production builds. It is now read from the plugin's mergeable `config/social-auth.php`; `config('services.google.client_id')` is still honored as a fallback for existing setups.
 
 ### Added
