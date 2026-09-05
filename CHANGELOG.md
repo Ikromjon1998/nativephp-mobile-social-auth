@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- iOS: Google Sign-In terminated the app instead of starting. The `url_schemes` manifest key added in 1.1.0-beta.2 is not read by NativePHP Mobile (3.3.x or 4.x), so the reversed client ID was never registered and `GIDSignIn` raised an uncaught `NSException`. The scheme is now written by a `post_compile` hook (`social-auth:register-url-scheme`), which patches every Info.plist in the generated project -- including `NativePHP-simulator-Info.plist`, which the simulator target builds against.
+- iOS: a missing or misconfigured URL scheme now dispatches `SignInFailed` with `MISSING_CONFIG` instead of crashing. Swift cannot catch the Objective-C exception `GIDSignIn` raises, so the bridge checks `CFBundleURLTypes` before calling it.
+- `signOut()` always returned `false`, and `checkAppleCredentialState()` always returned `'unknown'`, on a real device. Both read the response as `$decoded['data'][...]`, but the native layer builds responses with `BridgeResponse.success(data:)`, which returns the payload flat with no `data` envelope. Both shapes are now accepted. Confirmed on an iPhone 17 simulator: `signOut()` now returns `true`.
+
+### Changed
+- `GOOGLE_IOS_REVERSED_CLIENT_ID` is derived from `GOOGLE_IOS_CLIENT_ID` when not set explicitly.
+- Documented the install steps NativePHP requires but the README omitted: publishing and registering the plugin in `NativeServiceProvider`, and setting `android.min_sdk` to 29 in a published `config/nativephp.php` (the `NATIVEPHP_ANDROID_MIN_SDK` variable NativePHP's own error suggests is not read by anything).
+
 ## [1.1.0-beta.2] - 2026-09-04
 
 ### Fixed

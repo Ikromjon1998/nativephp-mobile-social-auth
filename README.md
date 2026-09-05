@@ -33,8 +33,12 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native p
 - PHP 8.3+
 - Laravel 11, 12, or 13
 - NativePHP Mobile 3.x
-- iOS 18.0+ / Android API 29+
-- Apple Developer account (for Apple Sign-In entitlement)
+- iOS 18.0+ / Android API 29+ (see [Installation](#android-raise-the-minimum-sdk) -- the Android
+  minimum is not NativePHP's default)
+- A **paid** Apple Developer Program membership for Apple Sign-In. The
+  `com.apple.developer.applesignin` entitlement cannot be provisioned by a free Personal Team, and
+  the iOS Simulator refuses to launch a build carrying it without a provisioning profile. Google
+  Sign-In needs no Apple account.
 
 ## Installation
 
@@ -42,9 +46,48 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native p
 composer require ikromjon/nativephp-mobile-social-auth
 ```
 
-The service provider and facade are auto-discovered by Laravel.
+On Laravel 13 add `-W`: NativePHP Mobile 3.x pins `guzzlehttp/guzzle ^7.9` while Laravel 13 ships
+Guzzle 8, so Composer needs permission to downgrade it.
 
-Then rebuild your native project to include the plugin's native dependencies:
+The service provider and facade are auto-discovered by Laravel. **Auto-discovery is not enough on its
+own** -- NativePHP will not compile a plugin into a build unless it is also listed in your
+`NativeServiceProvider`:
+
+```bash
+php artisan vendor:publish --tag=nativephp-plugins-provider
+php artisan native:plugin:register ikromjon/nativephp-mobile-social-auth
+```
+
+Skip these and the app still builds, but every bridge call silently returns `null`. Confirm with:
+
+```bash
+php artisan native:plugin:list      # should list 4 registered bridge functions
+php artisan native:plugin:validate  # should report OK
+```
+
+### Android: raise the minimum SDK
+
+This plugin requires Android API 29, and NativePHP defaults to 26. If you skip this, the build
+aborts before compiling.
+
+The build error tells you to set `NATIVEPHP_ANDROID_MIN_SDK` in `.env` -- **that does not work.**
+Nothing in NativePHP Mobile 3.3.x reads that variable; the value is read only from
+`config('nativephp.android.min_sdk')`, and the shipped config never defines that key. Copy the
+package config into your app and add it:
+
+```bash
+cp vendor/nativephp/mobile/config/nativephp.php config/nativephp.php
+```
+
+```php
+// config/nativephp.php
+'android' => [
+    'min_sdk' => 29,
+    // ... leave the rest of the array as shipped
+],
+```
+
+Then build the native projects:
 
 ```bash
 php artisan native:install --force
@@ -401,6 +444,11 @@ use Firebase\JWT\JWT;
 use Firebase\JWT\JWK;
 
 // Google verification
+//
+// Note on `azp`: a real token from this plugin carries `aud` = your server
+// client ID and `azp` = the *platform* client ID (the iOS or Android client
+// that requested it). Check `aud`; do not compare `azp` against the server
+// client ID, or every mobile sign-in will be rejected.
 $googleKeys = json_decode(
     file_get_contents('https://www.googleapis.com/oauth2/v3/certs'), true
 );
@@ -423,6 +471,43 @@ $decoded = JWT::decode($identityToken, JWK::parseKeySet($appleKeys));
 
 Install the JWT library: `composer require firebase/php-jwt`
 
+## Known issues
+
+**`System::isIos()` / `System::isAndroid()` return `false` inside the app**
+
+Not a fault of this plugin, but it affects any platform-conditional code written around it:
+`Device::getInfo()` returns `null` on the iOS simulator, so both helpers report `false` and code
+silently takes its "not on a device" branch. Read `env('NATIVEPHP_PLATFORM')` instead -- the native
+runtime exports it into `$_SERVER` before Laravel boots, so it also survives `config:cache`.
+
+## How the iOS URL scheme is registered
+
+GoogleSignIn-iOS will not start unless the reversed client ID is registered in `CFBundleURLTypes`,
+and it reports a missing scheme by raising an uncaught `NSException` -- which terminates the app
+rather than returning an error.
+
+The plugin manifest cannot express this. `url_schemes` is **not** a key NativePHP Mobile reads
+(neither 3.3.x nor 4.x), and the supported `info_plist` route only handles flat strings and flat
+arrays of strings, not the array-of-dicts `CFBundleURLTypes` requires.
+
+So the plugin registers it from a `post_compile` hook instead
+(`social-auth:register-url-scheme`), which runs after NativePHP has finished rewriting the
+Info.plist and before Xcode builds. **This is automatic -- there is nothing to configure.** For
+reference, it:
+
+- writes its own entry, tagged `CFBundleURLName = ikromjon.social-auth.google`, so it never collides
+  with NativePHP's deeplink entry (which is refilled from `NATIVEPHP_DEEPLINK_SCHEME` each build);
+- patches **every** Info.plist in the generated project -- the device target builds against
+  `NativePHP/Info.plist` and the simulator target against `NativePHP-simulator-Info.plist`;
+- updates its entry in place on rebuilds rather than duplicating it, and rewrites it if the client
+  ID changes;
+- derives the reversed ID from `GOOGLE_IOS_CLIENT_ID` when `GOOGLE_IOS_REVERSED_CLIENT_ID` is absent.
+
+As a second line of defence, the Swift bridge checks `CFBundleURLTypes` *before* calling
+`GIDSignIn`. Swift cannot catch an Objective-C `NSException`, so this cannot be wrapped in
+`do/catch`; if the scheme is missing the plugin dispatches `SignInFailed` with `MISSING_CONFIG`
+instead of letting the app die.
+
 ## Troubleshooting
 
 **iOS build fails: `error: extra arguments at positions #4, #5 in call` in SocialAuthFunctions.swift**
@@ -434,6 +519,33 @@ Install the JWT library: `composer require firebase/php-jwt`
 
 **"MISSING_CONFIG" error**
 - Check that `GOOGLE_SERVER_CLIENT_ID` is set in your `.env` file
+
+**Build aborts: "Missing required plugin secrets" although the values are in `.env`**
+- Run `php artisan config:clear` before building. Once `config:cache` has run, Laravel stops loading
+  `.env`, so every `env()` call returns null -- and NativePHP reads plugin secrets through `env()`.
+  This does not affect the built app: values reach it through config, which is why
+  `GOOGLE_SERVER_CLIENT_ID` still resolves at runtime with the config cached.
+
+**Build aborts: "Plugin ... requires Android API level 29, but your min SDK is 26"**
+- Setting `NATIVEPHP_ANDROID_MIN_SDK` in `.env` as the message suggests has no effect -- nothing
+  reads it. Define `android.min_sdk` in a published `config/nativephp.php` instead; see
+  [Installation](#android-raise-the-minimum-sdk).
+
+**Every bridge call returns `null` and no events fire**
+- The plugin is installed but not registered. Run `php artisan native:plugin:list` -- if it appears
+  under "Unregistered Plugins", run `php artisan native:plugin:register
+  ikromjon/nativephp-mobile-social-auth` and rebuild.
+
+**Apple Sign-In fails with `AuthorizationError error 1000` and no sheet appears**
+- The entitlement is not in the built binary. Check with
+  `codesign -d --entitlements - /path/to/YourApp.app`; empty output means it was dropped. This
+  happens when `NATIVEPHP_DEVELOPMENT_TEAM` is unset, because the app is then ad-hoc signed. A free
+  Personal Team is not sufficient -- see [Requirements](#requirements).
+
+**Code changes do not appear after `native:run`**
+- The app can keep serving the previous build's files. Force a clean extraction:
+  `xcrun simctl uninstall <udid> <your.app.id>` (iOS) or `adb uninstall <your.app.id>` (Android)
+  before re-running.
 
 **Google Sign-In returns null on Android**
 - This is expected. On Android, Google Sign-In is async. Use `#[OnNative(GoogleSignInCompleted::class)]` to receive the result.
