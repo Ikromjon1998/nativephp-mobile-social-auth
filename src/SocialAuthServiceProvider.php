@@ -20,5 +20,12 @@ class SocialAuthServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../config/social-auth.php' => config_path('social-auth.php'),
         ], 'social-auth-config');
+
+        if ($this->app->runningInConsole()) {
+            // Invoked by NativePHP as this plugin's post_compile hook.
+            $this->commands([
+                Commands\RegisterGoogleUrlSchemeCommand::class,
+            ]);
+        }
     }
 }

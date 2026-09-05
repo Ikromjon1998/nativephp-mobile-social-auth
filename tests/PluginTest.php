@@ -50,12 +50,33 @@ test('ios info plist configures google client ids', function () {
 // GIDSignIn checks CFBundleURLTypes for the *reversed* client ID and raises
 // "Your app is missing support for the following URL schemes" otherwise.
 
-test('ios url scheme is the reversed google client id, not the client id itself', function () {
+test('the google url scheme is registered by a hook, not by a url_schemes key', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
 
-    expect($json['ios']['url_schemes'])->toBe(['${GOOGLE_IOS_REVERSED_CLIENT_ID}']);
+    // `url_schemes` is not a key NativePHP Mobile reads — not in 3.3.x and not
+    // in 4.x — so declaring it silently registered nothing and Google Sign-In
+    // crashed the app on iOS. A post_compile hook writes the entry instead.
+    expect($json['ios'])->not->toHaveKey('url_schemes');
+    expect($json['hooks']['post_compile'] ?? null)->toBe('social-auth:register-url-scheme');
+
     expect($json['secrets'])->toHaveKey('GOOGLE_IOS_REVERSED_CLIENT_ID');
     expect($json['secrets']['GOOGLE_IOS_REVERSED_CLIENT_ID']['required'])->toBeTrue();
+});
+
+test('the ios bridge refuses to sign in when the url scheme is unregistered', function () {
+    $swift = file_get_contents(dirname(__DIR__).'/resources/ios/Sources/SocialAuthFunctions.swift');
+
+    // GIDSignIn reports this by raising an NSException, which Swift cannot
+    // catch, so the check has to happen before the call rather than around it.
+    expect($swift)->toContain('static func configurationError()');
+    expect($swift)->toContain('CFBundleURLTypes');
+    expect($swift)->toContain('MISSING_CONFIG');
+
+    $guardPos = strpos($swift, 'if let message = Self.configurationError()');
+    $signInPos = strpos($swift, 'GIDSignIn.sharedInstance.signIn(withPresenting:');
+
+    expect($guardPos)->not->toBeFalse();
+    expect($guardPos)->toBeLessThan($signInPos);
 });
 
 test('composer allows nativephp mobile v3 and v4', function () {
