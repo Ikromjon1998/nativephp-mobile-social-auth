@@ -17,5 +17,7 @@ class GoogleSignInCompleted
         public ?string $givenName = null,
         public ?string $familyName = null,
         public ?string $photoUrl = null,
+        public ?string $accessToken = null,
+        public ?string $authorizationCode = null,
     ) {}
 }

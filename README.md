@@ -87,6 +87,7 @@ You need **two** OAuth client IDs from the same Google Cloud project:
 3. Bundle ID: your `NATIVEPHP_APP_ID` from `.env`
 4. Click **Create**
 5. Copy the **Client ID** -- this is your `GOOGLE_IOS_CLIENT_ID`
+6. Copy the **iOS URL scheme** shown below it (the client ID reversed, `com.googleusercontent.apps.123456789-abc`) -- this is your `GOOGLE_IOS_REVERSED_CLIENT_ID`. Google Sign-In registers it as the OAuth callback URL scheme and refuses to start (`Your app is missing support for the following URL schemes`) if it is missing.
 
 > **Why three client IDs?** The Android client verifies your app's signing key. The Web client ID is used by Android Credential Manager and for backend token verification. The iOS client ID configures the Google Sign-In SDK on iOS.
 
@@ -94,6 +95,7 @@ You need **two** OAuth client IDs from the same Google Cloud project:
 
 ```env
 GOOGLE_IOS_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+GOOGLE_IOS_REVERSED_CLIENT_ID=com.googleusercontent.apps.123456789-abc
 GOOGLE_SERVER_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
 ```
 
@@ -187,6 +189,9 @@ class LoginScreen extends Component
         ?string $email = null,
         ?string $givenName = null,
         ?string $familyName = null,
+        ?string $displayName = null,
+        ?string $state = null,
+        ?string $realUserStatus = null,
     ) {
         if (!empty($userId)) {
             $this->handleSignIn([
@@ -209,6 +214,8 @@ class LoginScreen extends Component
         ?string $givenName = null,
         ?string $familyName = null,
         ?string $photoUrl = null,
+        ?string $accessToken = null,
+        ?string $authorizationCode = null,
     ) {
         if (!empty($userId)) {
             $this->handleSignIn([
@@ -373,8 +380,10 @@ Signs out from Google and clears credential state. Apple has no sign-out API.
 
 | Event | Payload |
 |-------|---------|
-| `AppleSignInCompleted` | `userId`, `identityToken`, `authorizationCode`, `email`, `givenName`, `familyName` |
-| `GoogleSignInCompleted` | `userId`, `identityToken`, `email`, `displayName`, `givenName`, `familyName`, `photoUrl` |
+| `AppleSignInCompleted` | `userId`, `identityToken`, `authorizationCode`, `email`, `givenName`, `familyName`, `displayName`, `state`, `realUserStatus` |
+| `GoogleSignInCompleted` | `userId`, `identityToken`, `email`, `displayName`, `givenName`, `familyName`, `photoUrl`, `accessToken`, `authorizationCode` (iOS only -- Android Credential Manager issues neither) |
+
+Event payloads carry every field of `AuthResult` except `provider` and `nonce` (the nonce is inside `identityToken`). Fields the platform did not return arrive as empty strings, not `null` -- check with `!empty()` / `filled()`, not `!== null`.
 | `SignInFailed` | `provider`, `error`, `errorCode` |
 
 **Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `UNKNOWN`

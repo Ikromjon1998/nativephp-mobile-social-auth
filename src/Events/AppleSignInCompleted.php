@@ -16,5 +16,8 @@ class AppleSignInCompleted
         public ?string $email = null,
         public ?string $givenName = null,
         public ?string $familyName = null,
+        public ?string $displayName = null,
+        public ?string $state = null,
+        public ?string $realUserStatus = null,
     ) {}
 }

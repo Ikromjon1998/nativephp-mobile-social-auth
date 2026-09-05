@@ -47,6 +47,54 @@ test('ios info plist configures google client ids', function () {
     expect($json['ios']['info_plist']['GIDServerClientID'])->toBe('${GOOGLE_SERVER_CLIENT_ID}');
 });
 
+// GIDSignIn checks CFBundleURLTypes for the *reversed* client ID and raises
+// "Your app is missing support for the following URL schemes" otherwise.
+
+test('ios url scheme is the reversed google client id, not the client id itself', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    expect($json['ios']['url_schemes'])->toBe(['${GOOGLE_IOS_REVERSED_CLIENT_ID}']);
+    expect($json['secrets'])->toHaveKey('GOOGLE_IOS_REVERSED_CLIENT_ID');
+    expect($json['secrets']['GOOGLE_IOS_REVERSED_CLIENT_ID']['required'])->toBeTrue();
+});
+
+test('composer allows nativephp mobile v3 and v4', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/composer.json'), true);
+
+    expect($json['require']['nativephp/mobile'])->toBe('^3.0|^4.0');
+});
+
+// The Apple presentation context provider is held weakly by ASAuthorizationController.
+
+test('swift keeps a strong reference to the apple presentation context provider', function () {
+    $swift = file_get_contents(dirname(__DIR__).'/resources/ios/Sources/SocialAuthFunctions.swift');
+
+    expect($swift)->toContain('var contextProvider: AppleSignInPresentationContext?');
+    expect($swift)->toContain('delegate.contextProvider = contextProvider');
+});
+
+test('kotlin sign-out treats a latch timeout as failure', function () {
+    $kotlin = file_get_contents(dirname(__DIR__).'/resources/android/src/SocialAuthFunctions.kt');
+
+    expect($kotlin)->toMatch('/val\s+\w+\s*=\s*latch\.await\(/');
+    expect($kotlin)->toContain('SIGN_OUT_TIMEOUT');
+});
+
+// Events are the documented single handling path, so they must not lose fields
+// that the synchronous AuthResult return carries.
+
+test('event constructors expose every auth result field except provider and nonce', function (string $event, array $platformOmits) {
+    $authFields = array_map(fn ($p) => $p->getName(), (new ReflectionClass(AuthResult::class))->getConstructor()->getParameters());
+    $eventFields = array_map(fn ($p) => $p->getName(), (new ReflectionClass($event))->getConstructor()->getParameters());
+
+    $expected = array_values(array_diff($authFields, ['provider', 'nonce'], $platformOmits));
+
+    expect(array_values(array_diff($expected, $eventFields)))->toBe([]);
+})->with([
+    [AppleSignInCompleted::class, ['accessToken', 'photoUrl']],
+    [GoogleSignInCompleted::class, ['state', 'realUserStatus']],
+]);
+
 test('events are registered in manifest', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
 

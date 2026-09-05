@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0-beta.2] - 2026-09-04
+
+### Fixed
+- iOS: Google Sign-In could not start. The manifest registered the raw `GOOGLE_IOS_CLIENT_ID` as the app's URL scheme, but GoogleSignIn-iOS requires the *reversed* client ID (`com.googleusercontent.apps.<id>`) and raises `Your app is missing support for the following URL schemes` otherwise. A new required secret `GOOGLE_IOS_REVERSED_CLIENT_ID` is now used for the URL scheme.
+- iOS: the Apple Sign-In sheet could fail to appear. `ASAuthorizationController.presentationContextProvider` is a weak reference and the provider object was a closure-local, so it was deallocated before the system asked for a presentation anchor. It is now retained for the duration of the request, and the key window is preferred as the anchor. The completion handler is also registered before the request is dispatched.
+- Android: `SignOut` reported `signedOut: true` when clearing the credential state timed out after 5 s. It now returns a `SIGN_OUT_TIMEOUT` error.
+
+### Added
+- `AppleSignInCompleted` now also carries `displayName`, `state` and `realUserStatus`; `GoogleSignInCompleted` now also carries `accessToken` and `authorizationCode` (iOS only -- Android Credential Manager issues neither). With events as the single documented handling path, they no longer lose data that the synchronous `AuthResult` return had.
+
+### Changed
+- `nativephp/mobile` requirement widened to `^3.0|^4.0`; the v4 upgrade guide lists no changes affecting third-party plugins.
+
+### Upgrade notes
+- Add `GOOGLE_IOS_REVERSED_CLIENT_ID` to your `.env` (Google Cloud Console shows it as "iOS URL scheme" on the iOS OAuth client) and run `php artisan native:install --force`.
+
 ## [1.1.0-beta.1] - 2026-07-17
 
 ### Fixed
