@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.1.0] - 2026-09-05
 
 ### Fixed
 - iOS: Google Sign-In terminated the app instead of starting. The `url_schemes` manifest key added in 1.1.0-beta.2 is not read by NativePHP Mobile (3.3.x or 4.x), so the reversed client ID was never registered and `GIDSignIn` raised an uncaught `NSException`. The scheme is now written by a `post_compile` hook (`social-auth:register-url-scheme`), which patches every Info.plist in the generated project -- including `NativePHP-simulator-Info.plist`, which the simulator target builds against.
@@ -10,8 +10,13 @@ All notable changes to this project will be documented in this file.
 - `signOut()` always returned `false`, and `checkAppleCredentialState()` always returned `'unknown'`, on a real device. Both read the response as `$decoded['data'][...]`, but the native layer builds responses with `BridgeResponse.success(data:)`, which returns the payload flat with no `data` envelope. Both shapes are now accepted. Confirmed on an iPhone 17 simulator: `signOut()` now returns `true`.
 
 ### Changed
-- `GOOGLE_IOS_REVERSED_CLIENT_ID` is derived from `GOOGLE_IOS_CLIENT_ID` when not set explicitly.
+- `GOOGLE_IOS_REVERSED_CLIENT_ID` is now **optional** and derived from `GOOGLE_IOS_CLIENT_ID` when not set. It was introduced as a required secret in 1.1.0-beta.2, which would have failed the build of every existing app that upgraded without adding a new `.env` line. Set it explicitly only if your reversed ID differs from the derived form.
 - Documented the install steps NativePHP requires but the README omitted: publishing and registering the plugin in `NativeServiceProvider`, and setting `android.min_sdk` to 29 in a published `config/nativephp.php` (the `NATIVEPHP_ANDROID_MIN_SDK` variable NativePHP's own error suggests is not read by anything).
+
+### Upgrade notes
+- No configuration changes are required. Run `php artisan native:install --force` and rebuild so the URL scheme is registered.
+- `signOut()` and `checkAppleCredentialState()` previously returned `false` and `'unknown'` unconditionally. Code written around those constant values will now see real results.
+- 1.1.0-beta.2 was never tagged, so no released version ever shipped the `url_schemes` regression.
 
 ## [1.1.0-beta.2] - 2026-09-04
 

@@ -130,7 +130,7 @@ You need **two** OAuth client IDs from the same Google Cloud project:
 3. Bundle ID: your `NATIVEPHP_APP_ID` from `.env`
 4. Click **Create**
 5. Copy the **Client ID** -- this is your `GOOGLE_IOS_CLIENT_ID`
-6. Copy the **iOS URL scheme** shown below it (the client ID reversed, `com.googleusercontent.apps.123456789-abc`) -- this is your `GOOGLE_IOS_REVERSED_CLIENT_ID`. Google Sign-In registers it as the OAuth callback URL scheme and refuses to start (`Your app is missing support for the following URL schemes`) if it is missing.
+6. *(Optional)* Copy the **iOS URL scheme** shown below it (the client ID reversed, `com.googleusercontent.apps.123456789-abc`) -- this is `GOOGLE_IOS_REVERSED_CLIENT_ID`. It is registered as the OAuth callback URL scheme, without which Google Sign-In cannot start. You only need to set it if your reversed ID differs from the default form; otherwise the plugin derives it from `GOOGLE_IOS_CLIENT_ID`.
 
 > **Why three client IDs?** The Android client verifies your app's signing key. The Web client ID is used by Android Credential Manager and for backend token verification. The iOS client ID configures the Google Sign-In SDK on iOS.
 
@@ -138,7 +138,8 @@ You need **two** OAuth client IDs from the same Google Cloud project:
 
 ```env
 GOOGLE_IOS_CLIENT_ID=123456789-abc.apps.googleusercontent.com
-GOOGLE_IOS_REVERSED_CLIENT_ID=com.googleusercontent.apps.123456789-abc
+# Optional -- derived from GOOGLE_IOS_CLIENT_ID when omitted:
+# GOOGLE_IOS_REVERSED_CLIENT_ID=com.googleusercontent.apps.123456789-abc
 GOOGLE_SERVER_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
 ```
 

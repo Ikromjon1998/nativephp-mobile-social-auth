@@ -59,8 +59,11 @@ test('the google url scheme is registered by a hook, not by a url_schemes key', 
     expect($json['ios'])->not->toHaveKey('url_schemes');
     expect($json['hooks']['post_compile'] ?? null)->toBe('social-auth:register-url-scheme');
 
+    // Optional on purpose: the hook derives it from GOOGLE_IOS_CLIENT_ID, so
+    // marking it required would fail the build of every existing app that
+    // upgrades without adding a new .env line.
     expect($json['secrets'])->toHaveKey('GOOGLE_IOS_REVERSED_CLIENT_ID');
-    expect($json['secrets']['GOOGLE_IOS_REVERSED_CLIENT_ID']['required'])->toBeTrue();
+    expect($json['secrets']['GOOGLE_IOS_REVERSED_CLIENT_ID']['required'])->toBeFalse();
 });
 
 test('the ios bridge refuses to sign in when the url scheme is unregistered', function () {

@@ -67,8 +67,8 @@
             "required": true
         },
         "GOOGLE_IOS_REVERSED_CLIENT_ID": {
-            "description": "The iOS Client ID reversed (com.googleusercontent.apps.<id>), registered as the OAuth callback URL scheme; shown as 'iOS URL scheme' in Google Cloud Console",
-            "required": true
+            "description": "Optional. The iOS Client ID reversed (com.googleusercontent.apps.<id>), shown as 'iOS URL scheme' in Google Cloud Console. Derived from GOOGLE_IOS_CLIENT_ID when omitted.",
+            "required": false
         },
         "GOOGLE_SERVER_CLIENT_ID": {
             "description": "Google OAuth Server/Web Client ID for backend token verification",
