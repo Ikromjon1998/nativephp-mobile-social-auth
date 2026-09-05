@@ -9,7 +9,6 @@ uses(TestCase::class);
  * Sign-In on iOS — it terminates the app. These tests pin the behaviour that
  * keeps that from regressing silently.
  */
-
 const IOS_CLIENT_ID = '123456789-abcdef.apps.googleusercontent.com';
 const IOS_REVERSED = 'com.googleusercontent.apps.123456789-abcdef';
 
