@@ -1,5 +1,10 @@
 # NativePHP Mobile Social Auth
 
+[![Tests](https://github.com/Ikromjon1998/nativephp-mobile-social-auth/actions/workflows/tests.yml/badge.svg)](https://github.com/Ikromjon1998/nativephp-mobile-social-auth/actions/workflows/tests.yml)
+[![NativePHP Plugin](https://img.shields.io/badge/NativePHP-Plugin-6d28d9)](https://nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth)
+[![PHP](https://img.shields.io/badge/PHP-8.3%2B-777bb4)](composer.json)
+[![License: Commercial](https://img.shields.io/badge/License-Commercial-blue)](LICENSE)
+
 Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native platform SDKs (not browser-based redirects) for a seamless sign-in experience.
 
 > **App Store Requirement:** If your app offers any third-party sign-in (Google, Facebook, etc.), Apple requires you to also offer Sign in with Apple. Apps that don't comply will be rejected during App Store review. ([Apple Guideline 4.8](https://developer.apple.com/app-store/review/guidelines/#sign-in-with-apple))
@@ -28,8 +33,12 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native p
 - PHP 8.3+
 - Laravel 11, 12, or 13
 - NativePHP Mobile 3.x
-- iOS 18.0+ / Android API 29+
-- Apple Developer account (for Apple Sign-In entitlement)
+- iOS 18.0+ / Android API 29+ (see [Installation](#android-raise-the-minimum-sdk) -- the Android
+  minimum is not NativePHP's default)
+- A **paid** Apple Developer Program membership for Apple Sign-In. The
+  `com.apple.developer.applesignin` entitlement cannot be provisioned by a free Personal Team, and
+  the iOS Simulator refuses to launch a build carrying it without a provisioning profile. Google
+  Sign-In needs no Apple account.
 
 ## Installation
 
@@ -37,9 +46,48 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native p
 composer require ikromjon/nativephp-mobile-social-auth
 ```
 
-The service provider and facade are auto-discovered by Laravel.
+On Laravel 13 add `-W`: NativePHP Mobile 3.x pins `guzzlehttp/guzzle ^7.9` while Laravel 13 ships
+Guzzle 8, so Composer needs permission to downgrade it.
 
-Then rebuild your native project to include the plugin's native dependencies:
+The service provider and facade are auto-discovered by Laravel. **Auto-discovery is not enough on its
+own** -- NativePHP will not compile a plugin into a build unless it is also listed in your
+`NativeServiceProvider`:
+
+```bash
+php artisan vendor:publish --tag=nativephp-plugins-provider
+php artisan native:plugin:register ikromjon/nativephp-mobile-social-auth
+```
+
+Skip these and the app still builds, but every bridge call silently returns `null`. Confirm with:
+
+```bash
+php artisan native:plugin:list      # should list 4 registered bridge functions
+php artisan native:plugin:validate  # should report OK
+```
+
+### Android: raise the minimum SDK
+
+This plugin requires Android API 29, and NativePHP defaults to 26. If you skip this, the build
+aborts before compiling.
+
+The build error tells you to set `NATIVEPHP_ANDROID_MIN_SDK` in `.env` -- **that does not work.**
+Nothing in NativePHP Mobile 3.3.x reads that variable; the value is read only from
+`config('nativephp.android.min_sdk')`, and the shipped config never defines that key. Copy the
+package config into your app and add it:
+
+```bash
+cp vendor/nativephp/mobile/config/nativephp.php config/nativephp.php
+```
+
+```php
+// config/nativephp.php
+'android' => [
+    'min_sdk' => 29,
+    // ... leave the rest of the array as shipped
+],
+```
+
+Then build the native projects:
 
 ```bash
 php artisan native:install --force
@@ -82,6 +130,7 @@ You need **two** OAuth client IDs from the same Google Cloud project:
 3. Bundle ID: your `NATIVEPHP_APP_ID` from `.env`
 4. Click **Create**
 5. Copy the **Client ID** -- this is your `GOOGLE_IOS_CLIENT_ID`
+6. *(Optional)* Copy the **iOS URL scheme** shown below it (the client ID reversed, `com.googleusercontent.apps.123456789-abc`) -- this is `GOOGLE_IOS_REVERSED_CLIENT_ID`. It is registered as the OAuth callback URL scheme, without which Google Sign-In cannot start. You only need to set it if your reversed ID differs from the default form; otherwise the plugin derives it from `GOOGLE_IOS_CLIENT_ID`.
 
 > **Why three client IDs?** The Android client verifies your app's signing key. The Web client ID is used by Android Credential Manager and for backend token verification. The iOS client ID configures the Google Sign-In SDK on iOS.
 
@@ -89,10 +138,18 @@ You need **two** OAuth client IDs from the same Google Cloud project:
 
 ```env
 GOOGLE_IOS_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+# Optional -- derived from GOOGLE_IOS_CLIENT_ID when omitted:
+# GOOGLE_IOS_REVERSED_CLIENT_ID=com.googleusercontent.apps.123456789-abc
 GOOGLE_SERVER_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
 ```
 
-The plugin reads `GOOGLE_SERVER_CLIENT_ID` from your `.env` at runtime and passes it to the native SDK automatically. No manual Android string resources needed.
+The plugin picks up `GOOGLE_SERVER_CLIENT_ID` from your `.env` out of the box — it is read through the plugin's own `social-auth` config, so it keeps working after `php artisan config:cache` — and passes it to the native SDK automatically. No manual Android string resources needed.
+
+To customize, you can optionally publish the config file:
+
+```bash
+php artisan vendor:publish --tag=social-auth-config
+```
 
 ### 2. Apple Sign-In Setup
 
@@ -115,11 +172,11 @@ No `.env` configuration needed for Apple -- it uses the native iOS SDK directly.
 | **Apple Sign-In** | Returns `AuthResult` directly | Returns `null` (unsupported) |
 | **Google Sign-In** | Returns `AuthResult` directly | Returns `null`; result arrives via event |
 
-On **iOS**, bridge calls block until the user completes or cancels sign-in, then return the result.
+On **iOS**, bridge calls block until the user completes or cancels sign-in, then return the result synchronously. The **same result is also dispatched** as an `AppleSignInCompleted` / `GoogleSignInCompleted` event — the synchronous return is a convenience only.
 
 On **Android**, Google Sign-In is asynchronous -- the call returns immediately, and the result is delivered via `GoogleSignInCompleted` or `SignInFailed` events.
 
-**Recommended pattern:** Always use event listeners AND check the return value. This ensures your code works on both platforms:
+**Recommended pattern:** Handle results via event listeners as the **single** handling path — events fire on both platforms. Do not handle the return value AND register listeners for the same sign-in, or your handler runs twice on iOS:
 
 ### Livewire (Recommended)
 
@@ -145,16 +202,13 @@ class LoginScreen extends Component
         $rawNonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $rawNonce]);
 
-        // iOS: returns AuthResult directly
-        // Android: returns null (Apple Sign-In not available)
-        $result = SocialAuth::appleSignIn(
+        // The result is handled by the #[OnNative] listeners below --
+        // identically on iOS and Android. (On iOS the call also returns
+        // the result synchronously; it is intentionally unused here.)
+        SocialAuth::appleSignIn(
             scopes: ['email', 'fullName'],
             nonce: hash('sha256', $rawNonce),
         );
-
-        if ($result) {
-            $this->handleSignIn($result->toArray());
-        }
     }
 
     public function signInWithGoogle()
@@ -162,13 +216,10 @@ class LoginScreen extends Component
         $nonce = bin2hex(random_bytes(16));
         session(['auth_nonce' => $nonce]);
 
-        // iOS: returns AuthResult directly
-        // Android: returns null, result comes via event below
-        $result = SocialAuth::googleSignIn(nonce: $nonce);
-
-        if ($result) {
-            $this->handleSignIn($result->toArray());
-        }
+        // The result is handled by the #[OnNative] listeners below --
+        // identically on iOS and Android. (On iOS the call also returns
+        // the result synchronously; it is intentionally unused here.)
+        SocialAuth::googleSignIn(nonce: $nonce);
     }
 
     // Event handlers use NAMED PARAMETERS matching the event payload keys.
@@ -182,6 +233,9 @@ class LoginScreen extends Component
         ?string $email = null,
         ?string $givenName = null,
         ?string $familyName = null,
+        ?string $displayName = null,
+        ?string $state = null,
+        ?string $realUserStatus = null,
     ) {
         if (!empty($userId)) {
             $this->handleSignIn([
@@ -204,6 +258,8 @@ class LoginScreen extends Component
         ?string $givenName = null,
         ?string $familyName = null,
         ?string $photoUrl = null,
+        ?string $accessToken = null,
+        ?string $authorizationCode = null,
     ) {
         if (!empty($userId)) {
             $this->handleSignIn([
@@ -289,24 +345,20 @@ async function sha256Hex(value) {
 // Google Sign-In
 async function handleGoogleSignIn() {
     const nonce = generateNonce();
-    const result = await socialAuth.googleSignIn(nonce);
-    // On iOS: result contains data. On Android: result is null, use event.
-    if (result?.identityToken) {
-        sendTokenToBackend(result.identityToken);
-    }
+    // The result is handled by the On(...) listeners below -- identically
+    // on iOS and Android. (On iOS the promise also resolves with the
+    // result; it is intentionally unused here.)
+    await socialAuth.googleSignIn(nonce);
 }
 
 // Apple Sign-In
 async function handleAppleSignIn() {
     const rawNonce = generateNonce();
     // Apple expects the SHA-256 hash of the nonce -- keep rawNonce for server-side verification
-    const result = await socialAuth.appleSignIn(['email', 'fullName'], await sha256Hex(rawNonce));
-    if (result?.identityToken) {
-        sendTokenToBackend(result.identityToken);
-    }
+    await socialAuth.appleSignIn(['email', 'fullName'], await sha256Hex(rawNonce));
 }
 
-// Listen for events (works on both platforms, required for Android)
+// Single handling path: these events fire on both platforms
 On('Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted', (payload) => {
     sendTokenToBackend(payload.identityToken);
 });
@@ -372,21 +424,32 @@ Signs out from Google and clears credential state. Apple has no sign-out API.
 
 | Event | Payload |
 |-------|---------|
-| `AppleSignInCompleted` | `userId`, `identityToken`, `authorizationCode`, `email`, `givenName`, `familyName` |
-| `GoogleSignInCompleted` | `userId`, `identityToken`, `email`, `displayName`, `givenName`, `familyName`, `photoUrl` |
+| `AppleSignInCompleted` | `userId`, `identityToken`, `authorizationCode`, `email`, `givenName`, `familyName`, `displayName`, `state`, `realUserStatus` |
+| `GoogleSignInCompleted` | `userId`, `identityToken`, `email`, `displayName`, `givenName`, `familyName`, `photoUrl`, `accessToken`, `authorizationCode` (iOS only -- Android Credential Manager issues neither) |
+
+Event payloads carry every field of `AuthResult` except `provider` and `nonce` (the nonce is inside `identityToken`). Fields the platform did not return arrive as empty strings, not `null` -- check with `!empty()` / `filled()`, not `!== null`.
 | `SignInFailed` | `provider`, `error`, `errorCode` |
 
-**Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `UNKNOWN`
+**Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `SCOPES_ALREADY_GRANTED`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `UNKNOWN`
 
 ## Server-Side Token Verification
 
-Identity tokens are JWTs that **must** be verified server-side before trusting the user's identity:
+Identity tokens are JWTs that **must** be verified server-side before trusting the user's identity.
+
+Google ID tokens from **both** platforms carry `aud` = your `GOOGLE_SERVER_CLIENT_ID` (Android sets it via `setServerClientId`, iOS via the `GIDServerClientID` Info.plist key), so the single `aud` check below covers both.
+
+> **Migration note:** On iOS, plugin versions ≤ 1.0.2 issued Google ID tokens with `aud` = your `GOOGLE_IOS_CLIENT_ID`. If you have existing installs, temporarily accept both audiences server-side until all clients are updated.
 
 ```php
 use Firebase\JWT\JWT;
 use Firebase\JWT\JWK;
 
 // Google verification
+//
+// Note on `azp`: a real token from this plugin carries `aud` = your server
+// client ID and `azp` = the *platform* client ID (the iOS or Android client
+// that requested it). Check `aud`; do not compare `azp` against the server
+// client ID, or every mobile sign-in will be rejected.
 $googleKeys = json_decode(
     file_get_contents('https://www.googleapis.com/oauth2/v3/certs'), true
 );
@@ -409,6 +472,43 @@ $decoded = JWT::decode($identityToken, JWK::parseKeySet($appleKeys));
 
 Install the JWT library: `composer require firebase/php-jwt`
 
+## Known issues
+
+**`System::isIos()` / `System::isAndroid()` return `false` inside the app**
+
+Not a fault of this plugin, but it affects any platform-conditional code written around it:
+`Device::getInfo()` returns `null` on the iOS simulator, so both helpers report `false` and code
+silently takes its "not on a device" branch. Read `env('NATIVEPHP_PLATFORM')` instead -- the native
+runtime exports it into `$_SERVER` before Laravel boots, so it also survives `config:cache`.
+
+## How the iOS URL scheme is registered
+
+GoogleSignIn-iOS will not start unless the reversed client ID is registered in `CFBundleURLTypes`,
+and it reports a missing scheme by raising an uncaught `NSException` -- which terminates the app
+rather than returning an error.
+
+The plugin manifest cannot express this. `url_schemes` is **not** a key NativePHP Mobile reads
+(neither 3.3.x nor 4.x), and the supported `info_plist` route only handles flat strings and flat
+arrays of strings, not the array-of-dicts `CFBundleURLTypes` requires.
+
+So the plugin registers it from a `post_compile` hook instead
+(`social-auth:register-url-scheme`), which runs after NativePHP has finished rewriting the
+Info.plist and before Xcode builds. **This is automatic -- there is nothing to configure.** For
+reference, it:
+
+- writes its own entry, tagged `CFBundleURLName = ikromjon.social-auth.google`, so it never collides
+  with NativePHP's deeplink entry (which is refilled from `NATIVEPHP_DEEPLINK_SCHEME` each build);
+- patches **every** Info.plist in the generated project -- the device target builds against
+  `NativePHP/Info.plist` and the simulator target against `NativePHP-simulator-Info.plist`;
+- updates its entry in place on rebuilds rather than duplicating it, and rewrites it if the client
+  ID changes;
+- derives the reversed ID from `GOOGLE_IOS_CLIENT_ID` when `GOOGLE_IOS_REVERSED_CLIENT_ID` is absent.
+
+As a second line of defence, the Swift bridge checks `CFBundleURLTypes` *before* calling
+`GIDSignIn`. Swift cannot catch an Objective-C `NSException`, so this cannot be wrapped in
+`do/catch`; if the scheme is missing the plugin dispatches `SignInFailed` with `MISSING_CONFIG`
+instead of letting the app die.
+
 ## Troubleshooting
 
 **iOS build fails: `error: extra arguments at positions #4, #5 in call` in SocialAuthFunctions.swift**
@@ -420,6 +520,33 @@ Install the JWT library: `composer require firebase/php-jwt`
 
 **"MISSING_CONFIG" error**
 - Check that `GOOGLE_SERVER_CLIENT_ID` is set in your `.env` file
+
+**Build aborts: "Missing required plugin secrets" although the values are in `.env`**
+- Run `php artisan config:clear` before building. Once `config:cache` has run, Laravel stops loading
+  `.env`, so every `env()` call returns null -- and NativePHP reads plugin secrets through `env()`.
+  This does not affect the built app: values reach it through config, which is why
+  `GOOGLE_SERVER_CLIENT_ID` still resolves at runtime with the config cached.
+
+**Build aborts: "Plugin ... requires Android API level 29, but your min SDK is 26"**
+- Setting `NATIVEPHP_ANDROID_MIN_SDK` in `.env` as the message suggests has no effect -- nothing
+  reads it. Define `android.min_sdk` in a published `config/nativephp.php` instead; see
+  [Installation](#android-raise-the-minimum-sdk).
+
+**Every bridge call returns `null` and no events fire**
+- The plugin is installed but not registered. Run `php artisan native:plugin:list` -- if it appears
+  under "Unregistered Plugins", run `php artisan native:plugin:register
+  ikromjon/nativephp-mobile-social-auth` and rebuild.
+
+**Apple Sign-In fails with `AuthorizationError error 1000` and no sheet appears**
+- The entitlement is not in the built binary. Check with
+  `codesign -d --entitlements - /path/to/YourApp.app`; empty output means it was dropped. This
+  happens when `NATIVEPHP_DEVELOPMENT_TEAM` is unset, because the app is then ad-hoc signed. A free
+  Personal Team is not sufficient -- see [Requirements](#requirements).
+
+**Code changes do not appear after `native:run`**
+- The app can keep serving the previous build's files. Force a clean extraction:
+  `xcrun simctl uninstall <udid> <your.app.id>` (iOS) or `adb uninstall <your.app.id>` (Android)
+  before re-running.
 
 **Google Sign-In returns null on Android**
 - This is expected. On Android, Google Sign-In is async. Use `#[OnNative(GoogleSignInCompleted::class)]` to receive the result.
@@ -437,4 +564,8 @@ Install the JWT library: `composer require firebase/php-jwt`
 
 ## License
 
-Proprietary. See [LICENSE](LICENSE) for details.
+This is a **commercial plugin** distributed through the official NativePHP plugin marketplace:
+
+👉 **[nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth](https://nativephp.com/plugins/ikromjon/nativephp-mobile-social-auth)**
+
+Use is governed by the [End User License Agreement](LICENSE). Redistribution or resale is not permitted.

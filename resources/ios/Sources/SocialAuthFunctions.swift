@@ -38,17 +38,22 @@ enum SocialAuthFunctions {
 
             let semaphore = DispatchSemaphore(value: 0)
 
+            // Register the completion handler before anything can fire it.
+            delegate.onComplete = {
+                semaphore.signal()
+            }
+
             DispatchQueue.main.async {
                 if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let window = windowScene.windows.first {
+                   let window = windowScene.windows.first(where: { $0.isKeyWindow }) ?? windowScene.windows.first {
+                    // `presentationContextProvider` is a weak reference: keep the provider
+                    // alive on the delegate for the duration of the request, otherwise it is
+                    // deallocated when this closure returns and the sheet never appears.
                     let contextProvider = AppleSignInPresentationContext(window: window)
+                    delegate.contextProvider = contextProvider
                     controller.presentationContextProvider = contextProvider
                 }
                 controller.performRequests()
-            }
-
-            delegate.onComplete = {
-                semaphore.signal()
             }
 
             semaphore.wait()
@@ -154,6 +159,9 @@ enum SocialAuthFunctions {
                         "email": result["email"] as? String ?? "",
                         "givenName": result["givenName"] as? String ?? "",
                         "familyName": result["familyName"] as? String ?? "",
+                        "displayName": result["displayName"] as? String ?? "",
+                        "state": result["state"] as? String ?? "",
+                        "realUserStatus": result["realUserStatus"] as? String ?? "",
                     ]
                 )
             }
@@ -165,8 +173,50 @@ enum SocialAuthFunctions {
     // MARK: - Google Sign-In
 
     class GoogleSignIn: BridgeFunction {
+        /// Why this exists: GIDSignIn reports missing configuration by raising an
+        /// Objective-C NSException, which Swift cannot catch, so the process
+        /// aborts and the user simply loses the app. Checking first turns that
+        /// into an ordinary SignInFailed event.
+        static func configurationError() -> String? {
+            guard let clientId = Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String,
+                  !clientId.isEmpty else {
+                return "GIDClientID is missing from Info.plist. Set GOOGLE_IOS_CLIENT_ID in your .env "
+                    + "and re-run: php artisan native:install --force"
+            }
+
+            let expected = "com.googleusercontent.apps."
+                + clientId.replacingOccurrences(of: ".apps.googleusercontent.com", with: "")
+
+            let urlTypes = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+
+            for urlType in urlTypes {
+                if let schemes = urlType["CFBundleURLSchemes"] as? [String], schemes.contains(expected) {
+                    return nil
+                }
+            }
+
+            return "The URL scheme \(expected) is not registered in CFBundleURLTypes, so Google Sign-In "
+                + "cannot start. Set GOOGLE_IOS_REVERSED_CLIENT_ID in your .env and re-run: "
+                + "php artisan native:install --force"
+        }
+
         func execute(parameters: [String: Any]) throws -> [String: Any] {
             let nonce = parameters["nonce"] as? String
+
+            if let message = Self.configurationError() {
+                DispatchQueue.main.async {
+                    LaravelBridge.shared.send?(
+                        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                        [
+                            "provider": "google",
+                            "error": message,
+                            "errorCode": "MISSING_CONFIG",
+                        ]
+                    )
+                }
+
+                return BridgeResponse.error(code: "MISSING_CONFIG", message: message)
+            }
 
             let semaphore = DispatchSemaphore(value: 0)
             var signInResult: GIDSignInResult?
@@ -271,6 +321,8 @@ enum SocialAuthFunctions {
                         "givenName": responseData["givenName"] as? String ?? "",
                         "familyName": responseData["familyName"] as? String ?? "",
                         "photoUrl": responseData["photoUrl"] as? String ?? "",
+                        "accessToken": responseData["accessToken"] as? String ?? "",
+                        "authorizationCode": responseData["authorizationCode"] as? String ?? "",
                     ]
                 )
             }
@@ -333,6 +385,7 @@ private class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
     var credential: ASAuthorizationAppleIDCredential?
     var error: Error?
     var onComplete: (() -> Void)?
+    var contextProvider: AppleSignInPresentationContext?
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {

@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-09-05
+
+### Fixed
+- iOS: Google Sign-In terminated the app instead of starting. The `url_schemes` manifest key added in 1.1.0-beta.2 is not read by NativePHP Mobile (3.3.x or 4.x), so the reversed client ID was never registered and `GIDSignIn` raised an uncaught `NSException`. The scheme is now written by a `post_compile` hook (`social-auth:register-url-scheme`), which patches every Info.plist in the generated project -- including `NativePHP-simulator-Info.plist`, which the simulator target builds against.
+- iOS: a missing or misconfigured URL scheme now dispatches `SignInFailed` with `MISSING_CONFIG` instead of crashing. Swift cannot catch the Objective-C exception `GIDSignIn` raises, so the bridge checks `CFBundleURLTypes` before calling it.
+- `signOut()` always returned `false`, and `checkAppleCredentialState()` always returned `'unknown'`, on a real device. Both read the response as `$decoded['data'][...]`, but the native layer builds responses with `BridgeResponse.success(data:)`, which returns the payload flat with no `data` envelope. Both shapes are now accepted. Confirmed on an iPhone 17 simulator: `signOut()` now returns `true`.
+
+### Changed
+- `GOOGLE_IOS_REVERSED_CLIENT_ID` is now **optional** and derived from `GOOGLE_IOS_CLIENT_ID` when not set. It was introduced as a required secret in 1.1.0-beta.2, which would have failed the build of every existing app that upgraded without adding a new `.env` line. Set it explicitly only if your reversed ID differs from the derived form.
+- Documented the install steps NativePHP requires but the README omitted: publishing and registering the plugin in `NativeServiceProvider`, and setting `android.min_sdk` to 29 in a published `config/nativephp.php` (the `NATIVEPHP_ANDROID_MIN_SDK` variable NativePHP's own error suggests is not read by anything).
+
+### Upgrade notes
+- No configuration changes are required. Run `php artisan native:install --force` and rebuild so the URL scheme is registered.
+- `signOut()` and `checkAppleCredentialState()` previously returned `false` and `'unknown'` unconditionally. Code written around those constant values will now see real results.
+- 1.1.0-beta.2 was never tagged, so no released version ever shipped the `url_schemes` regression.
+
+## [1.1.0-beta.2] - 2026-09-04
+
+### Fixed
+- iOS: Google Sign-In could not start. The manifest registered the raw `GOOGLE_IOS_CLIENT_ID` as the app's URL scheme, but GoogleSignIn-iOS requires the *reversed* client ID (`com.googleusercontent.apps.<id>`) and raises `Your app is missing support for the following URL schemes` otherwise. A new required secret `GOOGLE_IOS_REVERSED_CLIENT_ID` is now used for the URL scheme.
+- iOS: the Apple Sign-In sheet could fail to appear. `ASAuthorizationController.presentationContextProvider` is a weak reference and the provider object was a closure-local, so it was deallocated before the system asked for a presentation anchor. It is now retained for the duration of the request, and the key window is preferred as the anchor. The completion handler is also registered before the request is dispatched.
+- Android: `SignOut` reported `signedOut: true` when clearing the credential state timed out after 5 s. It now returns a `SIGN_OUT_TIMEOUT` error.
+
+### Added
+- `AppleSignInCompleted` now also carries `displayName`, `state` and `realUserStatus`; `GoogleSignInCompleted` now also carries `accessToken` and `authorizationCode` (iOS only -- Android Credential Manager issues neither). With events as the single documented handling path, they no longer lose data that the synchronous `AuthResult` return had.
+
+### Changed
+- `nativephp/mobile` requirement widened to `^3.0|^4.0`; the v4 upgrade guide lists no changes affecting third-party plugins.
+
+### Upgrade notes
+- Add `GOOGLE_IOS_REVERSED_CLIENT_ID` to your `.env` (Google Cloud Console shows it as "iOS URL scheme" on the iOS OAuth client) and run `php artisan native:install --force`.
+
+## [1.1.0-beta.1] - 2026-07-17
+
+### Fixed
+- iOS: Google ID tokens are now issued with `aud` = `GOOGLE_SERVER_CLIENT_ID` (added `GIDServerClientID` to the generated Info.plist), matching Android and the README's server-side verification instructions. Previously iOS tokens carried the iOS client ID as `aud`, so verification that worked on Android failed on iOS. This also makes GoogleSignIn-iOS populate `serverAuthCode` (returned as `authorizationCode`), which was always missing on iOS before.
+
+- Android: `GoogleSignInCompleted` never reached PHP. The native payload carried a `provider` key that the event constructor does not declare, and NativePHP dispatches events via `new $event(...$payload)` — so every successful Android Google sign-in died with `Unknown named parameter $provider`, which the NativePHP bridge swallows silently. The key is now omitted, making the Android payload identical to the iOS one. This matters especially alongside the events-only guidance below, which relies on the event firing on both platforms.
+
+- `GOOGLE_SERVER_CLIENT_ID` was read with a raw `env()` call at runtime, which returns null once config is cached (`php artisan config:cache` / `optimize`) — producing `MISSING_CONFIG` errors only in production builds. It is now read from the plugin's mergeable `config/social-auth.php`; `config('services.google.client_id')` is still honored as a fallback for existing setups.
+
+### Added
+- Publishable config file: `php artisan vendor:publish --tag=social-auth-config`.
+
+### Changed
+- README examples now handle sign-in results exclusively via events — the single path that works identically on iOS and Android. The previous examples handled both the iOS synchronous return and the events, which ran sign-in handlers twice on iOS. (Docs and phpdoc only; native behavior is unchanged.)
+
+### Upgrade notes
+- Run `php artisan native:install --force` after upgrading — the manifest change adds `GIDServerClientID` to the regenerated Info.plist.
+- Server-side: iOS clients still on plugin ≤ 1.0.2 send Google ID tokens with `aud` = the iOS client ID; temporarily accept both audiences during rollout if you have existing installs.
+
 ## [1.0.2] - 2026-07-03
 
 ### Fixed

@@ -44,12 +44,14 @@
     "ios": {
         "min_version": "18.0",
         "entitlements": {
-            "com.apple.developer.applesignin": ["Default"]
+            "com.apple.developer.applesignin": [
+                "Default"
+            ]
         },
         "info_plist": {
-            "GIDClientID": "${GOOGLE_IOS_CLIENT_ID}"
+            "GIDClientID": "${GOOGLE_IOS_CLIENT_ID}",
+            "GIDServerClientID": "${GOOGLE_SERVER_CLIENT_ID}"
         },
-        "url_schemes": ["${GOOGLE_IOS_CLIENT_ID}"],
         "dependencies": {
             "pods": [
                 {
@@ -64,9 +66,16 @@
             "description": "Google OAuth iOS Client ID from Google Cloud Console",
             "required": true
         },
+        "GOOGLE_IOS_REVERSED_CLIENT_ID": {
+            "description": "Optional. The iOS Client ID reversed (com.googleusercontent.apps.<id>), shown as 'iOS URL scheme' in Google Cloud Console. Derived from GOOGLE_IOS_CLIENT_ID when omitted.",
+            "required": false
+        },
         "GOOGLE_SERVER_CLIENT_ID": {
             "description": "Google OAuth Server/Web Client ID for backend token verification",
             "required": true
         }
+    },
+    "hooks": {
+        "post_compile": "social-auth:register-url-scheme"
     }
 }

@@ -40,6 +40,85 @@ test('each bridge function has ios and android mappings', function () {
     }
 });
 
+test('ios info plist configures google client ids', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    expect($json['ios']['info_plist']['GIDClientID'])->toBe('${GOOGLE_IOS_CLIENT_ID}');
+    expect($json['ios']['info_plist']['GIDServerClientID'])->toBe('${GOOGLE_SERVER_CLIENT_ID}');
+});
+
+// GIDSignIn checks CFBundleURLTypes for the *reversed* client ID and raises
+// "Your app is missing support for the following URL schemes" otherwise.
+
+test('the google url scheme is registered by a hook, not by a url_schemes key', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    // `url_schemes` is not a key NativePHP Mobile reads — not in 3.3.x and not
+    // in 4.x — so declaring it silently registered nothing and Google Sign-In
+    // crashed the app on iOS. A post_compile hook writes the entry instead.
+    expect($json['ios'])->not->toHaveKey('url_schemes');
+    expect($json['hooks']['post_compile'] ?? null)->toBe('social-auth:register-url-scheme');
+
+    // Optional on purpose: the hook derives it from GOOGLE_IOS_CLIENT_ID, so
+    // marking it required would fail the build of every existing app that
+    // upgrades without adding a new .env line.
+    expect($json['secrets'])->toHaveKey('GOOGLE_IOS_REVERSED_CLIENT_ID');
+    expect($json['secrets']['GOOGLE_IOS_REVERSED_CLIENT_ID']['required'])->toBeFalse();
+});
+
+test('the ios bridge refuses to sign in when the url scheme is unregistered', function () {
+    $swift = file_get_contents(dirname(__DIR__).'/resources/ios/Sources/SocialAuthFunctions.swift');
+
+    // GIDSignIn reports this by raising an NSException, which Swift cannot
+    // catch, so the check has to happen before the call rather than around it.
+    expect($swift)->toContain('static func configurationError()');
+    expect($swift)->toContain('CFBundleURLTypes');
+    expect($swift)->toContain('MISSING_CONFIG');
+
+    $guardPos = strpos($swift, 'if let message = Self.configurationError()');
+    $signInPos = strpos($swift, 'GIDSignIn.sharedInstance.signIn(withPresenting:');
+
+    expect($guardPos)->not->toBeFalse();
+    expect($guardPos)->toBeLessThan($signInPos);
+});
+
+test('composer allows nativephp mobile v3 and v4', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/composer.json'), true);
+
+    expect($json['require']['nativephp/mobile'])->toBe('^3.0|^4.0');
+});
+
+// The Apple presentation context provider is held weakly by ASAuthorizationController.
+
+test('swift keeps a strong reference to the apple presentation context provider', function () {
+    $swift = file_get_contents(dirname(__DIR__).'/resources/ios/Sources/SocialAuthFunctions.swift');
+
+    expect($swift)->toContain('var contextProvider: AppleSignInPresentationContext?');
+    expect($swift)->toContain('delegate.contextProvider = contextProvider');
+});
+
+test('kotlin sign-out treats a latch timeout as failure', function () {
+    $kotlin = file_get_contents(dirname(__DIR__).'/resources/android/src/SocialAuthFunctions.kt');
+
+    expect($kotlin)->toMatch('/val\s+\w+\s*=\s*latch\.await\(/');
+    expect($kotlin)->toContain('SIGN_OUT_TIMEOUT');
+});
+
+// Events are the documented single handling path, so they must not lose fields
+// that the synchronous AuthResult return carries.
+
+test('event constructors expose every auth result field except provider and nonce', function (string $event, array $platformOmits) {
+    $authFields = array_map(fn ($p) => $p->getName(), (new ReflectionClass(AuthResult::class))->getConstructor()->getParameters());
+    $eventFields = array_map(fn ($p) => $p->getName(), (new ReflectionClass($event))->getConstructor()->getParameters());
+
+    $expected = array_values(array_diff($authFields, ['provider', 'nonce'], $platformOmits));
+
+    expect(array_values(array_diff($expected, $eventFields)))->toBe([]);
+})->with([
+    [AppleSignInCompleted::class, ['accessToken', 'photoUrl']],
+    [GoogleSignInCompleted::class, ['state', 'realUserStatus']],
+]);
+
 test('events are registered in manifest', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
 
@@ -60,6 +139,16 @@ test('composer.json has nativephp manifest reference', function () {
     $json = json_decode(file_get_contents(dirname(__DIR__).'/composer.json'), true);
 
     expect($json['extra']['nativephp']['manifest'])->toBe('nativephp.json');
+});
+
+// Config file
+
+test('config file exists and defines google server client id', function () {
+    $path = dirname(__DIR__).'/config/social-auth.php';
+    expect(file_exists($path))->toBeTrue();
+
+    $config = require $path;
+    expect($config)->toBeArray()->toHaveKey('google_server_client_id');
 });
 
 // Native code existence
@@ -142,6 +231,41 @@ test('event classes exist', function () {
     expect(class_exists(AppleSignInCompleted::class))->toBeTrue();
     expect(class_exists(GoogleSignInCompleted::class))->toBeTrue();
     expect(class_exists(SignInFailed::class))->toBeTrue();
+});
+
+// Native event payloads are spread as named arguments into the event constructors
+// (NativePHP does `new $event(...$payload)`), so any key a platform sends that the
+// constructor does not declare makes the event fail to dispatch -- silently.
+
+test('ios event payload keys match the event constructor', function (string $event, string $short) {
+    $source = file_get_contents(dirname(__DIR__).'/resources/ios/Sources/SocialAuthFunctions.swift');
+
+    expect(preg_match('/'.$short.'",\s*\[(.*?)\]\s*\)/s', $source, $payload))->toBe(1);
+
+    preg_match_all('/"([a-zA-Z]+)":/', $payload[1], $keys);
+    $parameters = array_map(fn ($p) => $p->getName(), (new ReflectionClass($event))->getConstructor()->getParameters());
+
+    expect($keys[1])->not->toBeEmpty();
+    expect(array_diff($keys[1], $parameters))->toBe([]);
+})->with([
+    [GoogleSignInCompleted::class, 'GoogleSignInCompleted'],
+    [AppleSignInCompleted::class, 'AppleSignInCompleted'],
+]);
+
+test('android google event payload keys match the event constructor', function () {
+    $source = file_get_contents(dirname(__DIR__).'/resources/android/src/SocialAuthFunctions.kt');
+
+    $marker = 'val eventPayload = JSONObject().apply {';
+    expect($source)->toContain($marker);
+
+    $body = substr($source, strpos($source, $marker) + strlen($marker));
+    $body = substr($body, 0, strpos($body, '}'));
+
+    preg_match_all('/put\("([a-zA-Z]+)"/', $body, $keys);
+    $parameters = array_map(fn ($p) => $p->getName(), (new ReflectionClass(GoogleSignInCompleted::class))->getConstructor()->getParameters());
+
+    expect($keys[1])->not->toBeEmpty();
+    expect(array_diff($keys[1], $parameters))->toBe([]);
 });
 
 // Data classes

@@ -107,7 +107,8 @@ object SocialAuthFunctions {
                     } catch (_: Exception) { email }
 
                     val eventPayload = JSONObject().apply {
-                        put("provider", "google")
+                        // No "provider" key: the payload is spread as named arguments into
+                        // GoogleSignInCompleted, which declares none. Keep this matching iOS.
                         put("userId", stableUserId)
                         put("identityToken", googleIdTokenCredential.idToken)
                         put("email", email)
@@ -209,7 +210,14 @@ object SocialAuthFunctions {
                 }
             }
 
-            latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            val completed = latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+
+            if (!completed) {
+                return BridgeResponse.error(
+                    "SIGN_OUT_TIMEOUT",
+                    "Timed out waiting for the credential state to be cleared"
+                )
+            }
 
             if (clearError != null) {
                 return BridgeResponse.error(
