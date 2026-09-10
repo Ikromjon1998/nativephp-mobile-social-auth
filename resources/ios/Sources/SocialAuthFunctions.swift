@@ -170,6 +170,209 @@ enum SocialAuthFunctions {
         }
     }
 
+    // MARK: - Browser-based OAuth
+
+    /// Authorization-code flow for providers with no native SDK.
+    ///
+    /// ASWebAuthenticationSession is the only sanctioned way to do this on iOS:
+    /// it shares the Safari cookie jar, so an already-signed-in user is not asked
+    /// to type a password again, and Apple rejects apps that collect third-party
+    /// credentials in an embedded WKWebView.
+    ///
+    /// No tokens are returned. Redeeming the code needs a client secret, which
+    /// cannot live in an app binary, so the code and its PKCE verifier go back to
+    /// PHP and on to the app's own server.
+    class OAuthSignIn: BridgeFunction {
+        func execute(parameters: [String: Any]) throws -> [String: Any] {
+            let provider = parameters["provider"] as? String ?? "oauth"
+
+            guard let authorizeUrl = parameters["authorizeUrl"] as? String,
+                  let clientId = parameters["clientId"] as? String,
+                  let redirectUri = parameters["redirectUri"] as? String else {
+                return Self.fail(provider, "MISSING_CONFIG", "authorizeUrl, clientId and redirectUri are all required.")
+            }
+
+            let state = parameters["state"] as? String
+            let codeVerifier = parameters["codeVerifier"] as? String
+
+            guard let callbackScheme = Self.callbackScheme(redirectUri) else {
+                return Self.fail(provider, "MISSING_CONFIG", "redirectUri \(redirectUri) has no scheme to listen on.")
+            }
+
+            guard let url = Self.buildAuthorizeUrl(parameters, authorizeUrl: authorizeUrl,
+                                                   clientId: clientId, redirectUri: redirectUri) else {
+                return Self.fail(provider, "INVALID_PARAMS", "authorizeUrl \(authorizeUrl) is not a valid URL.")
+            }
+
+            let semaphore = DispatchSemaphore(value: 0)
+            var callbackUrl: URL?
+            var sessionError: Error?
+
+            // Held outside the closure: ASWebAuthenticationSession keeps only a
+            // weak reference to its presentation context provider, and the Apple
+            // Sign-In sheet already went missing once for exactly this reason.
+            var contextProvider: OAuthPresentationContext?
+            var session: ASWebAuthenticationSession?
+
+            DispatchQueue.main.async {
+                session = ASWebAuthenticationSession(
+                    url: url,
+                    callbackURLScheme: callbackScheme
+                ) { url, error in
+                    callbackUrl = url
+                    sessionError = error
+                    semaphore.signal()
+                }
+
+                contextProvider = OAuthPresentationContext()
+                session?.presentationContextProvider = contextProvider
+                // Without this the flow reuses the Safari session silently, which
+                // makes "sign in as a different user" impossible.
+                session?.prefersEphemeralWebBrowserSession = false
+                session?.start()
+            }
+
+            semaphore.wait()
+
+            // Keep both alive until the flow has finished.
+            _ = contextProvider
+            _ = session
+
+            if let error = sessionError {
+                if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
+                    return Self.fail(provider, "CANCELED", error.localizedDescription)
+                }
+
+                return Self.fail(provider, "OAUTH_FAILED", error.localizedDescription)
+            }
+
+            guard let callbackUrl = callbackUrl else {
+                return Self.fail(provider, "INVALID_RESPONSE", "The browser returned no callback URL.")
+            }
+
+            let query = Self.queryItems(callbackUrl)
+
+            // Providers report a refusal in the redirect rather than as a failure.
+            if let providerError = query["error"] {
+                let description = query["error_description"] ?? providerError
+
+                if providerError == "access_denied" {
+                    return Self.fail(provider, "CANCELED", description)
+                }
+
+                return Self.fail(provider, "OAUTH_FAILED", description)
+            }
+
+            guard let code = query["code"], !code.isEmpty else {
+                return Self.fail(provider, "INVALID_RESPONSE", "The callback carried no authorization code.")
+            }
+
+            // Compared here because this is the only place holding both values.
+            // A mismatch means the response is not the one this app asked for.
+            if let expected = state, !expected.isEmpty, query["state"] != expected {
+                return Self.fail(provider, "STATE_MISMATCH", "The state returned by the provider did not match the one sent.")
+            }
+
+            DispatchQueue.main.async {
+                LaravelBridge.shared.send?(
+                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\AuthorizationCodeReceived",
+                    [
+                        "provider": provider,
+                        "authorizationCode": code,
+                        "codeVerifier": codeVerifier ?? "",
+                        "state": query["state"] ?? "",
+                        "redirectUri": redirectUri,
+                    ]
+                )
+            }
+
+            return BridgeResponse.success(data: [
+                "status": "success",
+                "provider": provider,
+                "authorizationCode": code,
+                "state": query["state"] ?? "",
+            ])
+        }
+
+        /// ASWebAuthenticationSession matches the callback on scheme alone.
+        static func callbackScheme(_ redirectUri: String) -> String? {
+            guard let scheme = URL(string: redirectUri)?.scheme, !scheme.isEmpty else {
+                return nil
+            }
+
+            // An https redirect is a server round-trip (Apple's form_post flow),
+            // which this session cannot intercept.
+            return (scheme == "http" || scheme == "https") ? nil : scheme
+        }
+
+        static func buildAuthorizeUrl(_ parameters: [String: Any], authorizeUrl: String,
+                                      clientId: String, redirectUri: String) -> URL? {
+            guard var components = URLComponents(string: authorizeUrl) else {
+                return nil
+            }
+
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "response_type", value: "code"))
+            items.append(URLQueryItem(name: "client_id", value: clientId))
+            items.append(URLQueryItem(name: "redirect_uri", value: redirectUri))
+
+            if let scopes = parameters["scopes"] as? [String], !scopes.isEmpty {
+                items.append(URLQueryItem(name: "scope", value: scopes.joined(separator: " ")))
+            }
+            if let state = parameters["state"] as? String, !state.isEmpty {
+                items.append(URLQueryItem(name: "state", value: state))
+            }
+            if let challenge = parameters["codeChallenge"] as? String, !challenge.isEmpty {
+                items.append(URLQueryItem(name: "code_challenge", value: challenge))
+                items.append(URLQueryItem(name: "code_challenge_method",
+                                          value: parameters["codeChallengeMethod"] as? String ?? "S256"))
+            }
+            if let extra = parameters["extraParams"] as? [String: Any] {
+                for (key, value) in extra {
+                    items.append(URLQueryItem(name: key, value: String(describing: value)))
+                }
+            }
+
+            components.queryItems = items
+
+            return components.url
+        }
+
+        /// Reads the callback's query, falling back to the fragment for the
+        /// providers that answer there instead.
+        static func queryItems(_ url: URL) -> [String: String] {
+            var found: [String: String] = [:]
+
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+
+            for item in components?.queryItems ?? [] {
+                found[item.name] = item.value
+            }
+
+            if found.isEmpty, let fragment = components?.fragment {
+                for pair in fragment.split(separator: "&") {
+                    let parts = pair.split(separator: "=", maxSplits: 1)
+                    if parts.count == 2 {
+                        found[String(parts[0])] = String(parts[1]).removingPercentEncoding
+                    }
+                }
+            }
+
+            return found
+        }
+
+        static func fail(_ provider: String, _ code: String, _ message: String) -> [String: Any] {
+            DispatchQueue.main.async {
+                LaravelBridge.shared.send?(
+                    "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                    ["provider": provider, "error": message, "errorCode": code]
+                )
+            }
+
+            return BridgeResponse.error(code: code, message: message)
+        }
+    }
+
     // MARK: - Google Sign-In
 
     class GoogleSignIn: BridgeFunction {
@@ -409,5 +612,21 @@ private class AppleSignInPresentationContext: NSObject, ASAuthorizationControlle
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         return window
+    }
+}
+
+/// Supplies the window ASWebAuthenticationSession presents from.
+///
+/// Retained by the caller for the life of the request: the session holds this
+/// only weakly, and a deallocated provider means the sheet never appears.
+class OAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            return ASPresentationAnchor()
+        }
+
+        return windowScene.windows.first(where: { $0.isKeyWindow })
+            ?? windowScene.windows.first
+            ?? ASPresentationAnchor()
     }
 }

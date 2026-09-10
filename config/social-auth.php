@@ -43,9 +43,27 @@ return [
         ],
 
         'apple' => [
-            // Sign in with Apple has no configurable credentials on iOS; the
-            // entitlement carries the identity.
+            // iOS needs nothing here — the entitlement carries the identity.
+            //
+            // Android has no native Apple SDK, so sign-in falls through to the
+            // browser flow and needs your Service ID plus an https redirect.
+            // Apple form-posts the result when name or email scopes are asked
+            // for, so this must be an endpoint you control that redirects on to
+            // <your.application.id>://callback — a custom scheme will not work.
+            'client_id' => env('APPLE_SERVICE_ID'),
+            'redirect_uri' => env('APPLE_ANDROID_REDIRECT_URI'),
         ],
+
+        // Browser-based providers need no native code — just an entry here.
+        // 'github' => [
+        //     'driver' => 'oauth',
+        //     'authorize_url' => 'https://github.com/login/oauth/authorize',
+        //     'client_id' => env('GITHUB_CLIENT_ID'),
+        //     'scopes' => ['read:user', 'user:email'],
+        //     // Must be your application ID: the Android redirect activity is
+        //     // bound to ${applicationId} at build time.
+        //     'redirect_scheme' => env('NATIVEPHP_APP_ID'),
+        // ],
 
     ],
 

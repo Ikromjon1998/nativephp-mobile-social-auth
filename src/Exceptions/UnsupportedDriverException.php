@@ -22,16 +22,8 @@ class UnsupportedDriverException extends RuntimeException
 
     public static function for(string $provider, string $driver): self
     {
-        if ($driver === 'oauth') {
-            return new self(sprintf(
-                'Provider [%s] uses the `oauth` driver, which is not implemented yet. '
-                .'The web-based flow ships in 1.3.0; until then only `native` providers can sign in.',
-                $provider,
-            ));
-        }
-
         return new self(sprintf(
-            'Provider [%s] declares an unknown driver [%s]. Supported drivers: native.',
+            'Provider [%s] declares an unknown driver [%s]. Supported drivers: native, oauth.',
             $provider,
             $driver,
         ));

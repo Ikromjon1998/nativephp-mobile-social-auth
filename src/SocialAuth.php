@@ -3,8 +3,10 @@
 namespace Ikromjon\NativePHP\SocialAuth;
 
 use Ikromjon\NativePHP\SocialAuth\Data\AuthResult;
+use Ikromjon\NativePHP\SocialAuth\Exceptions\MissingProviderConfigException;
 use Ikromjon\NativePHP\SocialAuth\Exceptions\UnknownProviderException;
 use Ikromjon\NativePHP\SocialAuth\Exceptions\UnsupportedDriverException;
+use Ikromjon\NativePHP\SocialAuth\Providers\PkceChallenge;
 use Ikromjon\NativePHP\SocialAuth\Providers\ProviderRegistry;
 
 class SocialAuth
@@ -46,12 +48,62 @@ class SocialAuth
     public function signIn(string $provider, array $options = []): ?AuthResult
     {
         $definition = $this->providers()->get($provider);
-        $driver = $definition['driver'] ?? 'native';
+        $driver = $this->driverFor($definition);
 
-        if ($driver !== 'native') {
-            throw UnsupportedDriverException::for($provider, (string) $driver);
+        return match ($driver) {
+            'native' => $this->nativeSignIn($provider, $definition, $options),
+            'oauth' => $this->oauthSignIn($provider, $definition, $options),
+            default => throw UnsupportedDriverException::for($provider, (string) $driver),
+        };
+    }
+
+    /**
+     * The driver to use on the platform this is running on.
+     *
+     * A provider can name a per-platform override — `android_driver` — for the
+     * case where one platform has a vendor SDK and the other does not. Apple is
+     * the reason this exists: native on iOS, browser flow on Android.
+     *
+     * @param  array<string, mixed>  $definition
+     */
+    protected function driverFor(array $definition): string
+    {
+        $platform = $this->platform();
+
+        if ($platform !== null) {
+            $override = $definition[$platform.'_driver'] ?? null;
+
+            if (is_string($override) && $override !== '') {
+                return $override;
+            }
         }
 
+        return $definition['driver'] ?? 'native';
+    }
+
+    /**
+     * The platform the app is running on, or null off-device.
+     *
+     * Read from the environment rather than through `System::isIos()`, which
+     * reports false on both platforms when `Device::getInfo()` returns null.
+     * The native runtime exports this before Laravel boots, so it also survives
+     * `config:cache`.
+     */
+    protected function platform(): ?string
+    {
+        $value = $_SERVER['NATIVEPHP_PLATFORM'] ?? env('NATIVEPHP_PLATFORM');
+
+        return is_string($value) && $value !== '' ? strtolower($value) : null;
+    }
+
+    /**
+     * Sign in through a bridge function backed by a vendor SDK.
+     *
+     * @param  array<string, mixed>  $definition
+     * @param  array<string, mixed>  $options
+     */
+    protected function nativeSignIn(string $provider, array $definition, array $options): ?AuthResult
+    {
         $bridge = $definition['bridge'] ?? null;
 
         if (! is_string($bridge) || $bridge === '') {
@@ -68,6 +120,93 @@ class SocialAuth
         }
 
         return null;
+    }
+
+    /**
+     * Sign in through the system browser, returning an authorization code.
+     *
+     * No tokens come back here, by design: redeeming the code needs a client
+     * secret, and a secret shipped inside an app binary is a secret anyone can
+     * extract. The code is bound to a PKCE verifier so an intercepted redirect
+     * is not enough to redeem it, and both halves go to your own server to be
+     * exchanged.
+     *
+     * On Android the browser hands control back asynchronously, so the result
+     * arrives as an AuthorizationCodeReceived event rather than a return value.
+     *
+     * @param  array<string, mixed>  $definition
+     * @param  array<string, mixed>  $options
+     */
+    protected function oauthSignIn(string $provider, array $definition, array $options): ?AuthResult
+    {
+        $pkce = isset($options['code_verifier'])
+            ? PkceChallenge::fromVerifier((string) $options['code_verifier'])
+            : PkceChallenge::generate();
+
+        $state = $options['state'] ?? bin2hex(random_bytes(16));
+
+        $payload = $this->payload($this->call('SocialAuth.OAuthSignIn', [
+            'provider' => $provider,
+            'authorizeUrl' => $this->requiredValue($provider, $definition, 'authorize_url'),
+            'clientId' => $this->requiredValue($provider, $definition, 'client_id'),
+            'redirectUri' => $this->redirectUri($provider, $definition),
+            'scopes' => $definition['scopes'] ?? [],
+            'state' => $state,
+            'codeChallenge' => $pkce->challenge,
+            'codeChallengeMethod' => $pkce->method,
+            // Echoed back in the event so the code and its verifier travel together.
+            'codeVerifier' => $pkce->verifier,
+            'extraParams' => $definition['extra_params'] ?? [],
+        ]));
+
+        if (($payload['status'] ?? '') !== 'success') {
+            return null;
+        }
+
+        return AuthResult::fromArray($payload + [
+            'provider' => $provider,
+            'codeVerifier' => $pkce->verifier,
+        ]);
+    }
+
+    /**
+     * Where the provider sends the browser once the user approves.
+     *
+     * Most providers accept a custom scheme, which is what `redirect_scheme`
+     * builds. Apple is the exception — it form-posts to an https endpoint — so
+     * an explicit `redirect_uri` always wins.
+     *
+     * @param  array<string, mixed>  $definition
+     */
+    protected function redirectUri(string $provider, array $definition): string
+    {
+        $explicit = $definition['redirect_uri'] ?? null;
+
+        if (is_string($explicit) && $explicit !== '') {
+            return $explicit;
+        }
+
+        $scheme = $definition['redirect_scheme'] ?? null;
+
+        if (! is_string($scheme) || $scheme === '') {
+            throw MissingProviderConfigException::for($provider, ['redirect_uri or redirect_scheme']);
+        }
+
+        return $scheme.'://callback';
+    }
+
+    /**
+     * @param  array<string, mixed>  $definition
+     */
+    protected function requiredValue(string $provider, array $definition, string $key): string
+    {
+        $value = $definition[$key] ?? null;
+
+        if (! is_string($value) || $value === '') {
+            throw MissingProviderConfigException::for($provider, [$key]);
+        }
+
+        return $value;
     }
 
     /**

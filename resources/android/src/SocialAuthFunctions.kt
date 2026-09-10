@@ -1,5 +1,6 @@
 package com.ikromjon.plugins.socialauth
 
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.credentials.CredentialManager
@@ -8,6 +9,7 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.fragment.app.FragmentActivity
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -185,6 +187,92 @@ object SocialAuthFunctions {
         }
     }
 
+    /// Authorization-code flow for providers with no native SDK.
+    ///
+    /// Custom Tabs rather than a WebView: the browser's own cookies mean an
+    /// already-signed-in user is not asked to type a password again, and the
+    /// user can see the address bar — which is the only way they can tell they
+    /// are typing credentials into the real provider.
+    ///
+    /// No tokens come back. Redeeming the code needs a client secret, which
+    /// cannot ship inside an APK, so the code and its PKCE verifier go to PHP
+    /// and on to the app's own server.
+    class OAuthSignIn(private val activity: FragmentActivity) : BridgeFunction {
+        override fun execute(parameters: Map<String, Any>): Map<String, Any> {
+            val provider = parameters["provider"] as? String ?: "oauth"
+
+            val authorizeUrl = (parameters["authorizeUrl"] as? String)?.takeIf { it.isNotEmpty() }
+            val clientId = (parameters["clientId"] as? String)?.takeIf { it.isNotEmpty() }
+            val redirectUri = (parameters["redirectUri"] as? String)?.takeIf { it.isNotEmpty() }
+
+            if (authorizeUrl == null || clientId == null || redirectUri == null) {
+                return fail(activity, provider, "MISSING_CONFIG", "authorizeUrl, clientId and redirectUri are all required.")
+            }
+
+            val url = try {
+                buildAuthorizeUrl(parameters, authorizeUrl, clientId, redirectUri)
+            } catch (e: Exception) {
+                return fail(activity, provider, "INVALID_PARAMS", "authorizeUrl $authorizeUrl is not a valid URL: ${e.message}")
+            }
+
+            PendingOAuth.start(activity, provider, parameters["state"] as? String,
+                parameters["codeVerifier"] as? String, redirectUri)
+
+            try {
+                CustomTabsIntent.Builder()
+                    .setShowTitle(true)
+                    .build()
+                    .launchUrl(activity, url)
+            } catch (e: Exception) {
+                PendingOAuth.clear()
+
+                return fail(activity, provider, "NO_BROWSER", "No browser is available to complete sign-in: ${e.message}")
+            }
+
+            // Control passes to the browser; SocialAuthRedirectActivity picks the
+            // result back up and dispatches the event.
+            return BridgeResponse.success(mapOf("status" to "pending", "provider" to provider))
+        }
+
+        private fun buildAuthorizeUrl(
+            parameters: Map<String, Any>,
+            authorizeUrl: String,
+            clientId: String,
+            redirectUri: String
+        ): Uri {
+            val builder = Uri.parse(authorizeUrl).buildUpon()
+                .appendQueryParameter("response_type", "code")
+                .appendQueryParameter("client_id", clientId)
+                .appendQueryParameter("redirect_uri", redirectUri)
+
+            @Suppress("UNCHECKED_CAST")
+            val scopes = parameters["scopes"] as? List<String> ?: emptyList()
+            if (scopes.isNotEmpty()) {
+                builder.appendQueryParameter("scope", scopes.joinToString(" "))
+            }
+
+            (parameters["state"] as? String)?.takeIf { it.isNotEmpty() }?.let {
+                builder.appendQueryParameter("state", it)
+            }
+
+            (parameters["codeChallenge"] as? String)?.takeIf { it.isNotEmpty() }?.let {
+                builder.appendQueryParameter("code_challenge", it)
+                builder.appendQueryParameter(
+                    "code_challenge_method",
+                    parameters["codeChallengeMethod"] as? String ?: "S256"
+                )
+            }
+
+            @Suppress("UNCHECKED_CAST")
+            val extra = parameters["extraParams"] as? Map<String, Any> ?: emptyMap()
+            for ((key, value) in extra) {
+                builder.appendQueryParameter(key, value.toString())
+            }
+
+            return builder.build()
+        }
+    }
+
     // Apple credential state check is not available on Android
     class CheckAppleCredentialState(private val activity: FragmentActivity) : BridgeFunction {
         override fun execute(parameters: Map<String, Any>): Map<String, Any> {
@@ -228,5 +316,29 @@ object SocialAuthFunctions {
 
             return BridgeResponse.success(mapOf("signedOut" to true))
         }
+    }
+
+    /// Dispatches SignInFailed and returns the matching bridge error.
+    internal fun fail(
+        activity: FragmentActivity,
+        provider: String,
+        errorCode: String,
+        message: String
+    ): Map<String, Any> {
+        val payload = JSONObject().apply {
+            put("provider", provider)
+            put("error", message)
+            put("errorCode", errorCode)
+        }
+
+        Handler(Looper.getMainLooper()).post {
+            NativeActionCoordinator.dispatchEvent(
+                activity,
+                "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+                payload.toString()
+            )
+        }
+
+        return BridgeResponse.error(errorCode, message)
     }
 }

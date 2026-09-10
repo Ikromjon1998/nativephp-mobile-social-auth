@@ -24,12 +24,19 @@
             "android": "com.ikromjon.plugins.socialauth.SocialAuthFunctions.SignOut",
             "ios": "SocialAuthFunctions.SignOut",
             "description": "Sign out from Google (Apple has no sign-out API)"
+        },
+        {
+            "name": "SocialAuth.OAuthSignIn",
+            "android": "com.ikromjon.plugins.socialauth.SocialAuthFunctions.OAuthSignIn",
+            "ios": "SocialAuthFunctions.OAuthSignIn",
+            "description": "Start a browser-based OAuth authorization-code flow (PKCE)"
         }
     ],
     "events": [
         "Ikromjon\\NativePHP\\SocialAuth\\Events\\AppleSignInCompleted",
         "Ikromjon\\NativePHP\\SocialAuth\\Events\\GoogleSignInCompleted",
-        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed"
+        "Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed",
+        "Ikromjon\\NativePHP\\SocialAuth\\Events\\AuthorizationCodeReceived"
     ],
     "android": {
         "min_version": 29,
@@ -37,9 +44,29 @@
             "implementation": [
                 "androidx.credentials:credentials:1.6.0",
                 "androidx.credentials:credentials-play-services-auth:1.6.0",
-                "com.google.android.libraries.identity.googleid:googleid:1.1.1"
+                "com.google.android.libraries.identity.googleid:googleid:1.1.1",
+                "androidx.browser:browser:1.8.0"
             ]
-        }
+        },
+        "activities": [
+            {
+                "name": "com.ikromjon.plugins.socialauth.SocialAuthRedirectActivity",
+                "exported": true,
+                "launchMode": "singleTask",
+                "intent_filters": [
+                    {
+                        "action": "android.intent.action.VIEW",
+                        "category": [
+                            "android.intent.category.DEFAULT",
+                            "android.intent.category.BROWSABLE"
+                        ],
+                        "data": {
+                            "scheme": "${applicationId}"
+                        }
+                    }
+                ]
+            }
+        ]
     },
     "ios": {
         "min_version": "18.0",

@@ -2,7 +2,6 @@
 
 use Ikromjon\NativePHP\SocialAuth\Exceptions\UnknownProviderException;
 use Ikromjon\NativePHP\SocialAuth\Exceptions\UnsupportedDriverException;
-use Ikromjon\NativePHP\SocialAuth\SocialAuth;
 use Ikromjon\NativePHP\SocialAuth\Tests\TestCase;
 
 uses(TestCase::class);
@@ -13,32 +12,6 @@ uses(TestCase::class);
  * each provider reaches, and the exact parameter payload the native layer
  * receives.
  */
-
-/** A SocialAuth that records the bridge call instead of making one. */
-function recordingBridge(?string $response = null): SocialAuth
-{
-    return new class($response) extends SocialAuth
-    {
-        public ?string $method = null;
-
-        /** @var array<string, mixed> */
-        public array $params = [];
-
-        public bool $called = false;
-
-        public function __construct(private ?string $response) {}
-
-        protected function call(string $method, array $params = []): ?string
-        {
-            $this->called = true;
-            $this->method = $method;
-            $this->params = $params;
-
-            return $this->response;
-        }
-    };
-}
-
 it('routes each provider to its own bridge function', function () {
     $google = recordingBridge();
     $google->signIn('google');
@@ -101,19 +74,6 @@ it('rejects an unknown provider before touching the bridge', function () {
 
     expect(fn () => $bridge->signIn('myspace'))->toThrow(UnknownProviderException::class);
     expect($bridge->called)->toBeFalse();
-});
-
-/**
- * The oauth driver is configured-but-unimplemented until 1.3.0. Failing loudly
- * beats silently calling a bridge function that does not exist.
- */
-it('reports the oauth driver as not yet implemented', function () {
-    config()->set('social-auth.providers', [
-        'github' => ['driver' => 'oauth', 'client_id' => 'gh'],
-    ]);
-
-    expect(fn () => recordingBridge()->signIn('github'))
-        ->toThrow(UnsupportedDriverException::class, 'not implemented yet');
 });
 
 it('reports an unrecognised driver', function () {

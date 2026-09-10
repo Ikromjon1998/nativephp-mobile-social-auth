@@ -36,7 +36,18 @@ class ProviderRegistry
             'defaults' => ['scopes' => ['email', 'fullName']],
             // Apple has no sign-out API; sessions are managed in system settings.
             'supports_sign_out' => false,
-            'platforms' => ['ios'],
+            // There is no native Apple SDK on Android, so the browser flow
+            // stands in. Without it an Android build cannot offer Apple
+            // Sign-In at all -- and App Store Guideline 4.8 requires offering
+            // it alongside any other third-party sign-in.
+            'android_driver' => 'oauth',
+            'authorize_url' => 'https://appleid.apple.com/auth/authorize',
+            // Apple's web flow names its scopes differently from the native SDK.
+            'scopes' => ['name', 'email'],
+            // Requesting name or email obliges Apple to form_post the result to
+            // an https endpoint, which is why `redirect_uri` must be a server
+            // you control rather than a custom scheme.
+            'extra_params' => ['response_mode' => 'form_post'],
         ],
         'google' => [
             'driver' => 'native',

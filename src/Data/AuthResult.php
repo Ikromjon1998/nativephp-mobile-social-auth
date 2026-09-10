@@ -18,6 +18,7 @@ class AuthResult
         public ?string $nonce = null,
         public ?string $state = null,
         public ?string $realUserStatus = null,
+        public ?string $codeVerifier = null,
     ) {}
 
     public function toArray(): array
@@ -60,6 +61,9 @@ class AuthResult
         if ($this->realUserStatus !== null) {
             $data['realUserStatus'] = $this->realUserStatus;
         }
+        if ($this->codeVerifier !== null) {
+            $data['codeVerifier'] = $this->codeVerifier;
+        }
 
         return $data;
     }
@@ -80,6 +84,7 @@ class AuthResult
             nonce: $data['nonce'] ?? null,
             state: $data['state'] ?? null,
             realUserStatus: $data['realUserStatus'] ?? null,
+            codeVerifier: $data['codeVerifier'] ?? null,
         );
     }
 }

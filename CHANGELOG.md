@@ -4,12 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+> **The browser-based flow has not been run on a device yet.** The PHP layer is covered by tests, but
+> the Swift and Kotlin added for it have not been compiled or exercised on hardware. Every native fix
+> in this project's history — the URL-scheme `NSException`, the flat bridge responses, the swallowed
+> `Unknown named parameter` on Android — was a bug that only appeared on a real device. Cut this as a
+> pre-release and verify on device before promoting it, as 1.1.0 was.
+
 ### Added
 - **Provider registry.** Providers now resolve through `ProviderRegistry` instead of being hardcoded at each layer. Built-in definitions (bridge function, sign-out support, URL-scheme strategy) ship with the plugin; anything under the new `providers` key of `config/social-auth.php` is merged **over** them per provider. Merging happens per provider rather than via `mergeConfigFrom`, which merges only at the top level -- so publishing the config file no longer risks silently dropping a provider added in a later release.
 - **`SocialAuth::signIn(string $provider, array $options = [])`** -- a generic entry point. `appleSignIn()` and `googleSignIn()` are now thin wrappers around it and are unchanged for callers. Unknown providers throw `UnknownProviderException` before any bridge call is made.
 - **`SignInCompleted` event**, carrying `provider` plus every field the provider-specific events carry. It is mirrored in PHP from `AppleSignInCompleted` / `GoogleSignInCompleted` rather than dispatched a second time by the native layer, so existing `#[OnNative]` handlers still fire exactly once. Listen to this event *or* the provider-specific one, never both. Set `social-auth.dispatch_generic_event` to `false` to disable the mirroring.
 - `SocialAuth::signOut()` accepts an optional provider name. `signOut('apple')` returns `false` without calling the bridge, since Apple has no sign-out API.
 - The iOS URL-scheme hook now registers a scheme for **every** provider that declares one, each in its own `CFBundleURLTypes` entry. Custom providers get one by setting `url_scheme` to `redirect_scheme`.
+
+### Added -- browser-based providers
+- **`oauth` driver.** Providers with no native SDK now sign in through the system browser -- `ASWebAuthenticationSession` on iOS, Custom Tabs on Android -- using an authorization-code flow with PKCE. One native implementation serves every such provider, so GitHub, X, Discord, LinkedIn and the rest are a config entry rather than new Swift and Kotlin.
+- **`AuthorizationCodeReceived` event**, carrying `provider`, `authorizationCode`, `codeVerifier`, `state` and `redirectUri`. Deliberately not a `SignInCompleted`: no tokens come back to the app, because redeeming the code needs a client secret and a secret compiled into an app binary can be extracted from it. Your server completes the exchange.
+- **Apple Sign-In on Android.** `signIn('apple')` now falls through to the browser flow on Android instead of returning `UNSUPPORTED_PLATFORM`. Until now an Android build could not offer Apple Sign-In at all, which App Store Guideline 4.8 requires alongside any other third-party provider. It needs your Service ID and an **https** redirect you control -- Apple form-posts the result when `name` or `email` scopes are requested, so a custom scheme cannot receive it.
+- `AuthResult` gained `codeVerifier`, returned alongside the authorization code so the pair travels together.
+- New error codes: `OAUTH_FAILED` (provider-side refusal), `STATE_MISMATCH` (the redirect did not belong to the request this app started), `NO_BROWSER`, `INVALID_PARAMS`.
+
+### Notes on the browser flow
+- `state` and the PKCE verifier are generated per call in PHP and compared **natively**, since the native side is the only place holding both the sent and returned values.
+- On Android the redirect activity's intent-filter is bound to `${applicationId}`, substituted by the Android Gradle plugin. NativePHP does not substitute `${ENV}` placeholders into `AndroidManifest.xml` (only into `Info.plist`), so a per-app scheme cannot be declared there -- which is why the redirect scheme must be your application ID.
+- If Android kills the app while the browser is open, the in-flight request is lost and the flow has to be restarted; there is nothing left to dispatch the result to.
 
 ### Changed
 - `RegisterGoogleUrlSchemeCommand` is now `RegisterUrlSchemesCommand`. The artisan signature is unchanged (`social-auth:register-url-scheme`) because `nativephp.json` references it, so builds are unaffected; only a direct reference to the class name would need updating.

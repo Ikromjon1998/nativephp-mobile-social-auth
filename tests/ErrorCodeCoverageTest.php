@@ -14,7 +14,11 @@ function emittedErrorCodes(): array
     $root = dirname(__DIR__);
 
     $ios = file_get_contents($root.'/resources/ios/Sources/SocialAuthFunctions.swift');
-    $android = file_get_contents($root.'/resources/android/src/SocialAuthFunctions.kt');
+
+    // The browser flow lives partly in the redirect activity, so both Kotlin
+    // sources are scanned or its codes would look undocumented-by-omission.
+    $android = file_get_contents($root.'/resources/android/src/SocialAuthFunctions.kt')
+        .file_get_contents($root.'/resources/android/src/SocialAuthRedirectActivity.kt');
 
     $codes = [];
 
@@ -31,6 +35,14 @@ function emittedErrorCodes(): array
     $codes = array_merge($codes, $m[1]);
 
     preg_match_all('/->\s*"([A-Z_]+)"/', $android, $m);
+    $codes = array_merge($codes, $m[1]);
+
+    // The browser flow reports through shared helpers that take the code as
+    // their first string argument rather than assigning it to a local.
+    preg_match_all('/Self\.fail\(provider,\s*"([A-Z_]+)"/', $ios, $m);
+    $codes = array_merge($codes, $m[1]);
+
+    preg_match_all('/(?:fail|dispatchFailure)\(\s*activity,\s*provider,\s*"([A-Z_]+)"/', $android, $m);
     $codes = array_merge($codes, $m[1]);
 
     return array_values(array_unique($codes));

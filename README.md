@@ -17,14 +17,16 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native p
 - **User info** -- Name, email, profile photo
 - **Nonce support** -- Replay protection for both providers
 - **Credential state** -- Check if an Apple credential is still valid
+- **Any OAuth provider** -- GitHub, X, Discord and the rest through the system browser, config only, no native code
 - **Events** -- Livewire `#[OnNative]` and JS event listeners
 
 ## Platform Support
 
 | Feature | iOS | Android |
 |---------|-----|---------|
-| Apple Sign-In | Yes | No (Apple limitation) |
+| Apple Sign-In | Yes (native) | Yes (browser flow, [needs an https redirect](#apple-sign-in-on-android)) |
 | Google Sign-In | Yes | Yes |
+| Browser-based OAuth providers | Yes | Yes |
 | Credential State Check | Yes (Apple) | No |
 | Sign Out | Yes (Google) | Yes (Google) |
 
@@ -457,7 +459,9 @@ Event payloads carry every field of `AuthResult` except `provider` and `nonce` (
 > added in future releases without further changes. Set `social-auth.dispatch_generic_event` to
 > `false` to switch the mirroring off entirely.
 
-**Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `SCOPES_ALREADY_GRANTED`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `UNKNOWN`
+**Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `SCOPES_ALREADY_GRANTED`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `INVALID_PARAMS`, `OAUTH_FAILED`, `STATE_MISMATCH`, `NO_BROWSER`, `UNKNOWN`
+
+The last four are specific to browser-based providers: `OAUTH_FAILED` is a provider-side refusal, `STATE_MISMATCH` means the redirect did not belong to the request this app started, and `NO_BROWSER` means the device has no browser able to run the flow.
 
 ## Provider Registry
 
@@ -499,10 +503,63 @@ iOS `Info.plist` automatically by the same `post_compile` hook that handles Goog
 > extracted from it. Providers that need a secret to exchange an authorization code must do that
 > exchange on your server.
 
-**The `oauth` driver is not implemented yet.** Registering a provider with it is supported — the
-config is read, and its URL scheme is registered — but calling `signIn()` on it throws
-`UnsupportedDriverException` until the web-based flow ships in 1.3.0. Only `native` providers
-(Apple and Google) can sign in today.
+### The `oauth` driver
+
+Providers with no native SDK — GitHub, X, Discord, LinkedIn, Twitch, GitLab — run an
+authorization-code flow with PKCE through the system browser: `ASWebAuthenticationSession` on iOS,
+Custom Tabs on Android. One implementation serves all of them, so adding a provider is a config
+entry rather than native code.
+
+**No tokens come back to the app.** Redeeming the code requires a client secret, and a secret
+compiled into an app binary is a secret anyone can extract. What you get is an authorization code
+bound to a PKCE verifier, which your server exchanges:
+
+```
+app  ──▶ authorize URL + code_challenge  ──▶ provider
+app  ◀── code (via custom scheme)        ◀── provider
+app  ──▶ code + code_verifier            ──▶ your server ──▶ tokens
+```
+
+Handle it through the `AuthorizationCodeReceived` event, which carries `provider`,
+`authorizationCode`, `codeVerifier`, `state` and `redirectUri`. It is deliberately not a
+`SignInCompleted`: nothing is known about the user until your server completes the exchange.
+
+```php
+Event::listen(AuthorizationCodeReceived::class, function ($event) {
+    // Exchange server-side — the client secret must never reach the app.
+    $tokens = Http::asForm()->post('https://github.com/login/oauth/access_token', [
+        'client_id' => config('services.github.client_id'),
+        'client_secret' => config('services.github.client_secret'),
+        'code' => $event->authorizationCode,
+        'code_verifier' => $event->codeVerifier,
+        'redirect_uri' => $event->redirectUri,
+    ]);
+});
+```
+
+> **The redirect scheme must be your application ID on Android.** The redirect activity's
+> intent-filter is bound to `${applicationId}`, which the Android Gradle plugin substitutes at build
+> time — NativePHP does not substitute `${ENV}` placeholders into `AndroidManifest.xml`, so a
+> per-app scheme cannot be declared there. Set `redirect_scheme` to your application ID and register
+> `<your.application.id>://callback` with the provider. iOS follows the same value, so one setting
+> covers both.
+
+`state` and the PKCE verifier are generated per call and compared natively, since that is the only
+place holding both the sent and returned values. A mismatch reports `STATE_MISMATCH` rather than
+completing.
+
+#### Apple Sign-In on Android
+
+Android has no native Apple SDK, so Apple runs through this driver too — with one wrinkle that is
+Apple's, not the plugin's:
+
+> Apple requires `response_mode=form_post` whenever `name` or `email` scopes are requested, and
+> form-posts the result to an **https URL**, not a custom scheme. So the Android flow must round-trip
+> through an endpoint you control, which then redirects to `<your.application.id>://callback`.
+
+Set `redirect_uri` (not `redirect_scheme`) to that https endpoint for Apple. This is worth doing:
+App Store Guideline 4.8 requires offering Apple Sign-In alongside any other third-party sign-in, and
+without this an Android build cannot satisfy it.
 
 ## Server-Side Token Verification
 
