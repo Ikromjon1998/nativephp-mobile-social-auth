@@ -3,10 +3,73 @@
 namespace Ikromjon\NativePHP\SocialAuth;
 
 use Ikromjon\NativePHP\SocialAuth\Data\AuthResult;
-use Illuminate\Container\Container;
+use Ikromjon\NativePHP\SocialAuth\Exceptions\UnknownProviderException;
+use Ikromjon\NativePHP\SocialAuth\Exceptions\UnsupportedDriverException;
+use Ikromjon\NativePHP\SocialAuth\Providers\ProviderRegistry;
 
 class SocialAuth
 {
+    /**
+     * Resolved lazily rather than promoted into the constructor.
+     *
+     * Subclasses in the wild — and in this suite — replace the constructor to
+     * stub the bridge, which would leave a promoted property uninitialised.
+     */
+    protected ?ProviderRegistry $providerRegistry = null;
+
+    public function __construct(?ProviderRegistry $providers = null)
+    {
+        $this->providerRegistry = $providers;
+    }
+
+    protected function providers(): ProviderRegistry
+    {
+        return $this->providerRegistry ??= new ProviderRegistry;
+    }
+
+    /**
+     * Sign in with any registered provider.
+     *
+     * The provider-specific methods below are thin wrappers around this one and
+     * remain the ergonomic path for Apple and Google. Reach for `signIn()` when
+     * the provider is dynamic — a button loop over configured providers, say.
+     *
+     * Prefer handling the result via the SignInCompleted event; on iOS the same
+     * result is also dispatched as an event, so handling both the return value
+     * and the event runs your handler twice.
+     *
+     * @param  array<string, mixed>  $options  Provider options: 'scopes', 'nonce', 'state'
+     *
+     * @throws UnknownProviderException
+     * @throws UnsupportedDriverException
+     */
+    public function signIn(string $provider, array $options = []): ?AuthResult
+    {
+        $definition = $this->providers()->get($provider);
+        $driver = $definition['driver'] ?? 'native';
+
+        if ($driver !== 'native') {
+            throw UnsupportedDriverException::for($provider, (string) $driver);
+        }
+
+        $bridge = $definition['bridge'] ?? null;
+
+        if (! is_string($bridge) || $bridge === '') {
+            throw UnsupportedDriverException::missingBridge($provider);
+        }
+
+        $payload = $this->payload($this->call(
+            $bridge,
+            $this->params($provider, $definition, $options),
+        ));
+
+        if (($payload['status'] ?? '') === 'success') {
+            return AuthResult::fromArray($payload);
+        }
+
+        return null;
+    }
+
     /**
      * Initiate native Apple Sign-In.
      *
@@ -23,23 +86,11 @@ class SocialAuth
      */
     public function appleSignIn(array $scopes = ['email', 'fullName'], ?string $nonce = null, ?string $state = null): ?AuthResult
     {
-        $params = ['scopes' => $scopes];
-
-        if ($nonce !== null) {
-            $params['nonce'] = $nonce;
-        }
-
-        if ($state !== null) {
-            $params['state'] = $state;
-        }
-
-        $payload = $this->payload($this->call('SocialAuth.AppleSignIn', $params));
-
-        if (($payload['status'] ?? '') === 'success') {
-            return AuthResult::fromArray($payload);
-        }
-
-        return null;
+        return $this->signIn('apple', [
+            'scopes' => $scopes,
+            'nonce' => $nonce,
+            'state' => $state,
+        ]);
     }
 
     /**
@@ -55,25 +106,7 @@ class SocialAuth
      */
     public function googleSignIn(?string $nonce = null): ?AuthResult
     {
-        $params = [];
-
-        if ($nonce !== null) {
-            $params['nonce'] = $nonce;
-        }
-
-        $serverClientId = $this->serverClientId();
-
-        if ($serverClientId) {
-            $params['serverClientId'] = $serverClientId;
-        }
-
-        $payload = $this->payload($this->call('SocialAuth.GoogleSignIn', $params));
-
-        if (($payload['status'] ?? '') === 'success') {
-            return AuthResult::fromArray($payload);
-        }
-
-        return null;
+        return $this->signIn('google', ['nonce' => $nonce]);
     }
 
     /**
@@ -90,34 +123,62 @@ class SocialAuth
     }
 
     /**
-     * Sign out from Google.
+     * Sign out.
      *
-     * Apple Sign-In has no sign-out API — users manage Apple ID sessions
-     * through system settings.
+     * Passing no provider signs out of every provider that offers a sign-out
+     * API, which today means Google — the behaviour this method has always had.
+     *
+     * Apple Sign-In has no sign-out API: users manage Apple ID sessions through
+     * system settings, so `signOut('apple')` reports false without calling the
+     * bridge.
      *
      * @return bool True if sign-out succeeded
+     *
+     * @throws UnknownProviderException
      */
-    public function signOut(): bool
+    public function signOut(?string $provider = null): bool
     {
-        $payload = $this->payload($this->call('SocialAuth.SignOut'));
+        $params = [];
+
+        if ($provider !== null) {
+            if (($this->providers()->get($provider)['supports_sign_out'] ?? false) !== true) {
+                return false;
+            }
+
+            $params['provider'] = $provider;
+        }
+
+        $payload = $this->payload($this->call('SocialAuth.SignOut', $params));
 
         return ($payload['signedOut'] ?? false) === true;
     }
 
     /**
-     * The server client ID handed to the native SDK.
+     * Build the bridge parameters for a sign-in call.
      *
-     * Read through config rather than env() so it survives `config:cache`.
-     * The container check keeps the class usable outside a booted application,
-     * which unit tests rely on.
+     * Caller options win over the provider's defaults, and null options are
+     * dropped so the native layer sees the same payload it always has.
+     *
+     * @param  array<string, mixed>  $definition
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
      */
-    protected function serverClientId(): ?string
+    protected function params(string $provider, array $definition, array $options): array
     {
-        if (! Container::getInstance()->bound('config')) {
-            return null;
+        $params = array_merge(
+            $definition['defaults'] ?? [],
+            array_filter($options, fn ($value) => $value !== null),
+        );
+
+        foreach ($definition['params'] ?? [] as $bridgeParam => $configKey) {
+            $value = $this->providers()->value($provider, $configKey);
+
+            if ($value !== null && $value !== '') {
+                $params[$bridgeParam] = $value;
+            }
         }
 
-        return config('social-auth.google_server_client_id') ?: config('services.google.client_id');
+        return $params;
     }
 
     /**

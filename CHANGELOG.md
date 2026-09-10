@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Provider registry.** Providers now resolve through `ProviderRegistry` instead of being hardcoded at each layer. Built-in definitions (bridge function, sign-out support, URL-scheme strategy) ship with the plugin; anything under the new `providers` key of `config/social-auth.php` is merged **over** them per provider. Merging happens per provider rather than via `mergeConfigFrom`, which merges only at the top level -- so publishing the config file no longer risks silently dropping a provider added in a later release.
+- **`SocialAuth::signIn(string $provider, array $options = [])`** -- a generic entry point. `appleSignIn()` and `googleSignIn()` are now thin wrappers around it and are unchanged for callers. Unknown providers throw `UnknownProviderException` before any bridge call is made.
+- **`SignInCompleted` event**, carrying `provider` plus every field the provider-specific events carry. It is mirrored in PHP from `AppleSignInCompleted` / `GoogleSignInCompleted` rather than dispatched a second time by the native layer, so existing `#[OnNative]` handlers still fire exactly once. Listen to this event *or* the provider-specific one, never both. Set `social-auth.dispatch_generic_event` to `false` to disable the mirroring.
+- `SocialAuth::signOut()` accepts an optional provider name. `signOut('apple')` returns `false` without calling the bridge, since Apple has no sign-out API.
+- The iOS URL-scheme hook now registers a scheme for **every** provider that declares one, each in its own `CFBundleURLTypes` entry. Custom providers get one by setting `url_scheme` to `redirect_scheme`.
+
+### Changed
+- `RegisterGoogleUrlSchemeCommand` is now `RegisterUrlSchemesCommand`. The artisan signature is unchanged (`social-auth:register-url-scheme`) because `nativephp.json` references it, so builds are unaffected; only a direct reference to the class name would need updating.
+- `config/social-auth.php` gained `providers` and `dispatch_generic_event`. `google_server_client_id` is **deprecated** in favour of `providers.google.server_client_id` but is still read as a fallback, alongside `services.google.client_id`. It will be removed in 2.0.
+
+### Notes
+- Everything here is additive; no existing call, event, config key, or native payload changed. The 58 tests that covered 1.1.0 pass unmodified, with 30 added.
+- The `oauth` driver is defined but **not implemented**. A provider configured with it is registered and gets its URL scheme written, but `signIn()` throws `UnsupportedDriverException` until the web-based flow ships in 1.3.0.
+
 ## [1.1.0] - 2026-09-05
 
 ### Fixed

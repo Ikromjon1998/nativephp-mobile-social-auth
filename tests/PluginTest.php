@@ -217,6 +217,7 @@ test('social auth class exists with all methods', function () {
     expect(class_exists(SocialAuth::class))->toBeTrue();
 
     $methods = get_class_methods(SocialAuth::class);
+    expect($methods)->toContain('signIn');
     expect($methods)->toContain('appleSignIn');
     expect($methods)->toContain('googleSignIn');
     expect($methods)->toContain('checkAppleCredentialState');
