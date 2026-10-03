@@ -225,3 +225,101 @@ it('ignores Xcode build output copies', function () {
 
     expect(schemesIn($stale))->not->toContain(IOS_REVERSED);
 });
+
+/** Reads the CFBundleURLName of every entry, so ownership can be asserted. */
+function urlNamesIn(string $path): array
+{
+    $plist = simplexml_load_file($path);
+    $found = [];
+
+    foreach ($plist->dict->children() as $node) {
+        if ($node->getName() === 'key' && (string) $node === 'CFBundleURLTypes') {
+            $array = $node->xpath('following-sibling::array[1]')[0] ?? null;
+
+            foreach ($array?->dict ?? [] as $dict) {
+                $names = $dict->xpath('key[text()="CFBundleURLName"]/following-sibling::string[1]') ?: [];
+                foreach ($names as $name) {
+                    $found[] = (string) $name;
+                }
+            }
+        }
+    }
+
+    return $found;
+}
+
+/**
+ * Every plist in the field already carries this exact name. Changing it would
+ * make the next build append a second Google entry instead of refreshing the
+ * existing one, which is how duplicate URL schemes get shipped.
+ */
+it('keeps the historical CFBundleURLName for google', function () {
+    $path = makeInfoPlist($this->dir);
+
+    $this->artisan('social-auth:register-url-scheme', [
+        '--platform' => 'ios', '--build-path' => $this->dir,
+    ])->assertSuccessful();
+
+    expect(urlNamesIn($path))->toContain('ikromjon.social-auth.google');
+});
+
+it('registers a scheme for a configured custom provider', function () {
+    config()->set('social-auth.providers.github', [
+        'driver' => 'oauth',
+        'url_scheme' => 'redirect_scheme',
+        'redirect_scheme' => 'myapp-github',
+    ]);
+
+    $path = makeInfoPlist($this->dir);
+
+    $this->artisan('social-auth:register-url-scheme', [
+        '--platform' => 'ios', '--build-path' => $this->dir,
+    ])->assertSuccessful();
+
+    expect(schemesIn($path))->toContain('myapp-github')->toContain(IOS_REVERSED);
+    expect(urlNamesIn($path))->toContain('ikromjon.social-auth.github');
+});
+
+it('gives each provider its own entry rather than merging them', function () {
+    config()->set('social-auth.providers.github', [
+        'driver' => 'oauth', 'url_scheme' => 'redirect_scheme', 'redirect_scheme' => 'myapp-github',
+    ]);
+
+    $path = makeInfoPlist($this->dir);
+
+    foreach (range(1, 2) as $ignored) {
+        $this->artisan('social-auth:register-url-scheme', [
+            '--platform' => 'ios', '--build-path' => $this->dir,
+        ])->assertSuccessful();
+    }
+
+    $names = array_count_values(urlNamesIn($path));
+
+    expect($names['ikromjon.social-auth.google'])->toBe(1);
+    expect($names['ikromjon.social-auth.github'])->toBe(1);
+});
+
+/** Sign in with Apple needs no callback scheme on iOS; it must not invent one. */
+it('registers nothing for apple', function () {
+    $path = makeInfoPlist($this->dir);
+
+    $this->artisan('social-auth:register-url-scheme', [
+        '--platform' => 'ios', '--build-path' => $this->dir,
+    ])->assertSuccessful();
+
+    expect(urlNamesIn($path))->not->toContain('ikromjon.social-auth.apple');
+});
+
+/** A provider configured without a scheme must not block the ones that have one. */
+it('skips providers with nothing to register', function () {
+    config()->set('social-auth.providers.github', ['driver' => 'oauth']);
+
+    $path = makeInfoPlist($this->dir);
+
+    $this->artisan('social-auth:register-url-scheme', [
+        '--platform' => 'ios', '--build-path' => $this->dir,
+    ])->assertSuccessful();
+
+    expect(schemesIn($path))->toContain(IOS_REVERSED);
+    expect(urlNamesIn($path))->not->toContain('ikromjon.social-auth.github');
+});

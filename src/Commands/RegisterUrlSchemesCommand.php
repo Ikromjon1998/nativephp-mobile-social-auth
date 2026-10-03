@@ -4,32 +4,37 @@ namespace Ikromjon\NativePHP\SocialAuth\Commands;
 
 use DOMDocument;
 use DOMElement;
+use Ikromjon\NativePHP\SocialAuth\Providers\ProviderRegistry;
 use Illuminate\Console\Command;
 
 /**
- * Registers the Google callback URL scheme in the generated iOS Info.plist.
+ * Registers each provider's callback URL scheme in the generated iOS Info.plist.
  *
  * GoogleSignIn-iOS refuses to start unless the reversed client ID is listed in
  * CFBundleURLTypes, and it reports that by raising an uncaught NSException that
- * terminates the app.
+ * terminates the app. Other providers that hand control to a browser have the
+ * same requirement, which is why this walks the provider registry rather than
+ * hardcoding Google.
  *
  * The manifest cannot express this on its own. `url_schemes` is not a key
  * NativePHP Mobile reads (3.3.x or 4.x), and the supported `info_plist` route
  * only handles flat strings and flat arrays of strings — not the array-of-dicts
- * that CFBundleURLTypes requires. So the entry is written here instead, from a
- * post_compile hook, which runs after NativePHP has finished rewriting the
+ * that CFBundleURLTypes requires. So the entries are written here instead, from
+ * a post_compile hook, which runs after NativePHP has finished rewriting the
  * Info.plist and before Xcode builds it.
  *
- * The entry is added as its own dict, identified by CFBundleURLName. NativePHP's
+ * Each provider gets its own dict, identified by CFBundleURLName. NativePHP's
  * own updateUrlTypes() only ever touches the first dict in the array (filling it
  * from NATIVEPHP_DEEPLINK_SCHEME), so keeping ours separate means the two do not
  * overwrite each other on rebuilds.
  */
-class RegisterGoogleUrlSchemeCommand extends Command
+class RegisterUrlSchemesCommand extends Command
 {
-    /** Identifies our entry so repeated builds update it instead of duplicating it. */
-    private const URL_NAME = 'ikromjon.social-auth.google';
-
+    /**
+     * The artisan signature is referenced from nativephp.json's post_compile
+     * hook, so it stays as-is even though the command now covers every
+     * provider rather than Google alone.
+     */
     protected $signature = 'social-auth:register-url-scheme
         {--platform= : The platform being built (ios or android)}
         {--build-path= : Path to the generated native project}
@@ -38,17 +43,17 @@ class RegisterGoogleUrlSchemeCommand extends Command
         {--config= : JSON-encoded NativePHP config}
         {--plugins= : JSON-encoded list of registered plugins}';
 
-    protected $description = 'Register the Google Sign-In callback URL scheme in the iOS Info.plist';
+    protected $description = 'Register provider callback URL schemes in the iOS Info.plist';
 
-    public function handle(): int
+    public function handle(ProviderRegistry $providers): int
     {
         if ($this->option('platform') !== 'ios') {
             return self::SUCCESS;
         }
 
-        $reversed = $this->reversedClientId();
+        $schemes = $this->schemes($providers);
 
-        if ($reversed === null) {
+        if ($schemes === []) {
             $this->warn('social-auth: neither GOOGLE_IOS_REVERSED_CLIENT_ID nor GOOGLE_IOS_CLIENT_ID is set; '
                 .'skipping URL scheme registration. Google Sign-In will not start on iOS.');
 
@@ -67,17 +72,98 @@ class RegisterGoogleUrlSchemeCommand extends Command
         $patched = 0;
 
         foreach ($plistPaths as $plistPath) {
-            if ($this->patch($plistPath, $reversed)) {
+            if ($this->patch($plistPath, $schemes)) {
                 $patched++;
             }
         }
 
         if ($patched > 0) {
-            $this->line('  <fg=green>social-auth</>: registered URL scheme '.$reversed
+            $this->line('  <fg=green>social-auth</>: registered URL scheme(s) '.implode(', ', $schemes)
                 .' in '.$patched.' Info.plist file(s)');
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The scheme each configured provider needs registered, keyed by provider.
+     *
+     * A provider with nothing to register is skipped rather than failing the
+     * build — Apple Sign-In, for instance, never needs a URL scheme on iOS.
+     *
+     * @return array<string, string>
+     */
+    private function schemes(ProviderRegistry $providers): array
+    {
+        $schemes = [];
+
+        foreach ($providers->all() as $provider => $definition) {
+            $scheme = $this->schemeFor($provider, $definition, $providers);
+
+            if ($scheme !== null) {
+                $schemes[$provider] = $scheme;
+            }
+        }
+
+        return $schemes;
+    }
+
+    /**
+     * @param  array<string, mixed>  $definition
+     */
+    private function schemeFor(string $provider, array $definition, ProviderRegistry $providers): ?string
+    {
+        return match ($definition['url_scheme'] ?? null) {
+            'google_reversed' => $this->reversedClientId($provider, $providers),
+            'redirect_scheme' => $this->stringValue($providers->value($provider, 'redirect_scheme')),
+            default => null,
+        };
+    }
+
+    /**
+     * The reversed client ID, preferring the explicit secret.
+     *
+     * Google shows it as "iOS URL scheme", but it is a pure transformation of
+     * the client ID, so it can be derived when only that is configured.
+     *
+     * Config is consulted first and env second: this runs during a build, where
+     * the app's own .env is loaded, and the env fallback keeps setups that never
+     * published the config file working.
+     */
+    private function reversedClientId(string $provider, ProviderRegistry $providers): ?string
+    {
+        $reversed = $this->stringValue($providers->value($provider, 'ios_reversed_client_id'))
+            ?? $this->stringValue(env('GOOGLE_IOS_REVERSED_CLIENT_ID'));
+
+        if ($reversed !== null) {
+            return $reversed;
+        }
+
+        $clientId = $this->stringValue($providers->value($provider, 'ios_client_id'))
+            ?? $this->stringValue(env('GOOGLE_IOS_CLIENT_ID'));
+
+        if ($clientId === null) {
+            return null;
+        }
+
+        return 'com.googleusercontent.apps.'.str_replace('.apps.googleusercontent.com', '', $clientId);
+    }
+
+    private function stringValue(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * Identifies a provider's entry so repeated builds update it in place.
+     *
+     * Google's value must stay exactly `ikromjon.social-auth.google`: it is
+     * already written into every plist in the field, and a different name would
+     * append a second entry instead of refreshing the existing one.
+     */
+    private function urlName(string $provider): string
+    {
+        return 'ikromjon.social-auth.'.$provider;
     }
 
     /**
@@ -106,7 +192,10 @@ class RegisterGoogleUrlSchemeCommand extends Command
         ));
     }
 
-    private function patch(string $plistPath, string $scheme): bool
+    /**
+     * @param  array<string, string>  $schemes
+     */
+    private function patch(string $plistPath, array $schemes): bool
     {
         $document = new DOMDocument;
         $document->preserveWhiteSpace = false;
@@ -126,34 +215,13 @@ class RegisterGoogleUrlSchemeCommand extends Command
             return false;
         }
 
-        $this->writeUrlScheme($document, $root, $scheme);
+        foreach ($schemes as $provider => $scheme) {
+            $this->writeUrlScheme($document, $root, $this->urlName($provider), $scheme);
+        }
 
         file_put_contents($plistPath, $document->saveXML());
 
         return true;
-    }
-
-    /**
-     * The reversed client ID, preferring the explicit secret.
-     *
-     * Google shows it as "iOS URL scheme", but it is a pure transformation of
-     * the client ID, so it can be derived when only that is configured.
-     */
-    private function reversedClientId(): ?string
-    {
-        $reversed = env('GOOGLE_IOS_REVERSED_CLIENT_ID');
-
-        if (is_string($reversed) && $reversed !== '') {
-            return $reversed;
-        }
-
-        $clientId = env('GOOGLE_IOS_CLIENT_ID');
-
-        if (! is_string($clientId) || $clientId === '') {
-            return null;
-        }
-
-        return 'com.googleusercontent.apps.'.str_replace('.apps.googleusercontent.com', '', $clientId);
     }
 
     /** The top-level <dict> of the plist. */
@@ -174,8 +242,8 @@ class RegisterGoogleUrlSchemeCommand extends Command
         return null;
     }
 
-    /** Adds — or refreshes — our own dict inside CFBundleURLTypes. */
-    private function writeUrlScheme(DOMDocument $document, DOMElement $root, string $scheme): void
+    /** Adds — or refreshes — one provider's dict inside CFBundleURLTypes. */
+    private function writeUrlScheme(DOMDocument $document, DOMElement $root, string $urlName, string $scheme): void
     {
         $urlTypes = $this->valueFor($root, 'CFBundleURLTypes');
 
@@ -193,25 +261,25 @@ class RegisterGoogleUrlSchemeCommand extends Command
 
             $name = $this->valueFor($entry, 'CFBundleURLName');
 
-            if ($name !== null && $name->textContent === self::URL_NAME) {
+            if ($name !== null && $name->textContent === $urlName) {
                 // Ours already: replace it so a changed client ID takes effect.
-                $urlTypes->replaceChild($this->buildEntry($document, $scheme), $entry);
+                $urlTypes->replaceChild($this->buildEntry($document, $urlName, $scheme), $entry);
 
                 return;
             }
         }
 
-        $urlTypes->appendChild($this->buildEntry($document, $scheme));
+        $urlTypes->appendChild($this->buildEntry($document, $urlName, $scheme));
     }
 
-    private function buildEntry(DOMDocument $document, string $scheme): DOMElement
+    private function buildEntry(DOMDocument $document, string $urlName, string $scheme): DOMElement
     {
         $dict = $document->createElement('dict');
 
         $dict->appendChild($document->createElement('key', 'CFBundleTypeRole'));
         $dict->appendChild($document->createElement('string', 'Editor'));
         $dict->appendChild($document->createElement('key', 'CFBundleURLName'));
-        $dict->appendChild($document->createElement('string', self::URL_NAME));
+        $dict->appendChild($document->createElement('string', $urlName));
         $dict->appendChild($document->createElement('key', 'CFBundleURLSchemes'));
 
         $schemes = $document->createElement('array');

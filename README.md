@@ -17,14 +17,16 @@ Native Apple Sign-In and Google Sign-In for NativePHP mobile apps. Uses native p
 - **User info** -- Name, email, profile photo
 - **Nonce support** -- Replay protection for both providers
 - **Credential state** -- Check if an Apple credential is still valid
+- **Any OAuth provider** -- GitHub, X, Discord and the rest through the system browser, config only, no native code
 - **Events** -- Livewire `#[OnNative]` and JS event listeners
 
 ## Platform Support
 
 | Feature | iOS | Android |
 |---------|-----|---------|
-| Apple Sign-In | Yes | No (Apple limitation) |
+| Apple Sign-In | Yes (native) | Yes (browser flow, [needs an https redirect](#apple-sign-in-on-android)) |
 | Google Sign-In | Yes | Yes |
+| Browser-based OAuth providers | Yes | Yes |
 | Credential State Check | Yes (Apple) | No |
 | Sign Out | Yes (Google) | Yes (Google) |
 
@@ -376,6 +378,21 @@ On('Ikromjon\\NativePHP\\SocialAuth\\Events\\SignInFailed', (payload) => {
 
 ## API Reference
 
+### `SocialAuth::signIn(string $provider, array $options = []): ?AuthResult`
+
+Signs in with any registered provider. The provider-specific methods below are thin wrappers around
+this one and remain the ergonomic choice for Apple and Google — reach for `signIn()` when the
+provider is dynamic, such as a loop rendering a button per configured provider.
+
+- `$provider` — a key from the provider registry (`'apple'`, `'google'`, or one you configured)
+- `$options` — `scopes`, `nonce`, `state`. Null values are dropped; anything you pass overrides the provider's defaults.
+
+Throws `UnknownProviderException` if the provider is not registered, before any bridge call is made.
+
+```php
+$result = SocialAuth::signIn('google', ['nonce' => $nonce]);
+```
+
 ### `SocialAuth::appleSignIn(array $scopes, ?string $nonce, ?string $state): ?AuthResult`
 
 Initiates native Apple Sign-In. Returns `AuthResult` on iOS, `null` on Android.
@@ -398,9 +415,14 @@ Checks if an Apple credential is still valid. iOS only.
 
 Returns: `'authorized'`, `'revoked'`, `'not_found'`, `'transferred'`, or `'unknown'`
 
-### `SocialAuth::signOut(): bool`
+### `SocialAuth::signOut(?string $provider = null): bool`
 
-Signs out from Google and clears credential state. Apple has no sign-out API.
+Signs out and clears credential state.
+
+Passing no provider signs out of every provider that offers a sign-out API — today that means
+Google, which is exactly what this method has always done. Passing a provider name scopes the call
+to it. Apple has no sign-out API (sessions are managed in system settings), so `signOut('apple')`
+returns `false` without calling the bridge.
 
 ### AuthResult
 
@@ -426,11 +448,118 @@ Signs out from Google and clears credential state. Apple has no sign-out API.
 |-------|---------|
 | `AppleSignInCompleted` | `userId`, `identityToken`, `authorizationCode`, `email`, `givenName`, `familyName`, `displayName`, `state`, `realUserStatus` |
 | `GoogleSignInCompleted` | `userId`, `identityToken`, `email`, `displayName`, `givenName`, `familyName`, `photoUrl`, `accessToken`, `authorizationCode` (iOS only -- Android Credential Manager issues neither) |
-
-Event payloads carry every field of `AuthResult` except `provider` and `nonce` (the nonce is inside `identityToken`). Fields the platform did not return arrive as empty strings, not `null` -- check with `!empty()` / `filled()`, not `!== null`.
+| `SignInCompleted` | `provider`, plus every field above. Fires for **every** provider |
 | `SignInFailed` | `provider`, `error`, `errorCode` |
 
-**Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `SCOPES_ALREADY_GRANTED`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `UNKNOWN`
+Event payloads carry every field of `AuthResult` except `provider` and `nonce` (the nonce is inside `identityToken`). Fields the platform did not return arrive as empty strings, not `null` -- check with `!empty()` / `filled()`, not `!== null`.
+
+> **Listen to `SignInCompleted` *or* the provider-specific event, never both** -- `SignInCompleted`
+> is mirrored from the provider-specific events, so a handler registered on both runs twice.
+> `SignInCompleted` is the one to prefer in new code: it carries `provider` and fires for providers
+> added in future releases without further changes. Set `social-auth.dispatch_generic_event` to
+> `false` to switch the mirroring off entirely.
+
+**Error codes:** `CANCELED`, `FAILED`, `INVALID_RESPONSE`, `NOT_HANDLED`, `NOT_INTERACTIVE`, `NO_AUTH_IN_KEYCHAIN`, `NO_CREDENTIAL`, `SCOPES_ALREADY_GRANTED`, `UNSUPPORTED_PLATFORM`, `MISSING_CONFIG`, `PARSE_ERROR`, `INVALID_PARAMS`, `OAUTH_FAILED`, `STATE_MISMATCH`, `NO_BROWSER`, `UNKNOWN`
+
+The last four are specific to browser-based providers: `OAUTH_FAILED` is a provider-side refusal, `STATE_MISMATCH` means the redirect did not belong to the request this app started, and `NO_BROWSER` means the device has no browser able to run the flow.
+
+## Provider Registry
+
+Providers are resolved through a registry rather than hardcoded, so credentials live in config and
+the set of providers is open.
+
+Built-in definitions (which bridge function to call, whether the platform offers a sign-out API)
+ship with the plugin. Anything you put under `providers` in `config/social-auth.php` is merged
+**over** them per provider, so you only list what you are changing:
+
+```php
+'providers' => [
+    'google' => [
+        'server_client_id' => env('GOOGLE_SERVER_CLIENT_ID'),
+        'ios_client_id' => env('GOOGLE_IOS_CLIENT_ID'),
+        'ios_reversed_client_id' => env('GOOGLE_IOS_REVERSED_CLIENT_ID'),
+    ],
+],
+```
+
+Merging happens per provider rather than through Laravel's `mergeConfigFrom`, which only merges at
+the top level. That matters: if it merged shallowly, publishing this config file today would
+silently drop any provider added in a later release.
+
+Custom entries are registered too, and any that declare a `redirect_scheme` get it written into the
+iOS `Info.plist` automatically by the same `post_compile` hook that handles Google:
+
+```php
+'providers' => [
+    'github' => [
+        'driver' => 'oauth',
+        'url_scheme' => 'redirect_scheme',
+        'redirect_scheme' => 'myapp-github',
+    ],
+],
+```
+
+> **Never put a client secret in this file.** It is compiled into the app binary and can be
+> extracted from it. Providers that need a secret to exchange an authorization code must do that
+> exchange on your server.
+
+### The `oauth` driver
+
+Providers with no native SDK — GitHub, X, Discord, LinkedIn, Twitch, GitLab — run an
+authorization-code flow with PKCE through the system browser: `ASWebAuthenticationSession` on iOS,
+Custom Tabs on Android. One implementation serves all of them, so adding a provider is a config
+entry rather than native code.
+
+**No tokens come back to the app.** Redeeming the code requires a client secret, and a secret
+compiled into an app binary is a secret anyone can extract. What you get is an authorization code
+bound to a PKCE verifier, which your server exchanges:
+
+```
+app  ──▶ authorize URL + code_challenge  ──▶ provider
+app  ◀── code (via custom scheme)        ◀── provider
+app  ──▶ code + code_verifier            ──▶ your server ──▶ tokens
+```
+
+Handle it through the `AuthorizationCodeReceived` event, which carries `provider`,
+`authorizationCode`, `codeVerifier`, `state` and `redirectUri`. It is deliberately not a
+`SignInCompleted`: nothing is known about the user until your server completes the exchange.
+
+```php
+Event::listen(AuthorizationCodeReceived::class, function ($event) {
+    // Exchange server-side — the client secret must never reach the app.
+    $tokens = Http::asForm()->post('https://github.com/login/oauth/access_token', [
+        'client_id' => config('services.github.client_id'),
+        'client_secret' => config('services.github.client_secret'),
+        'code' => $event->authorizationCode,
+        'code_verifier' => $event->codeVerifier,
+        'redirect_uri' => $event->redirectUri,
+    ]);
+});
+```
+
+> **The redirect scheme must be your application ID on Android.** The redirect activity's
+> intent-filter is bound to `${applicationId}`, which the Android Gradle plugin substitutes at build
+> time — NativePHP does not substitute `${ENV}` placeholders into `AndroidManifest.xml`, so a
+> per-app scheme cannot be declared there. Set `redirect_scheme` to your application ID and register
+> `<your.application.id>://callback` with the provider. iOS follows the same value, so one setting
+> covers both.
+
+`state` and the PKCE verifier are generated per call and compared natively, since that is the only
+place holding both the sent and returned values. A mismatch reports `STATE_MISMATCH` rather than
+completing.
+
+#### Apple Sign-In on Android
+
+Android has no native Apple SDK, so Apple runs through this driver too — with one wrinkle that is
+Apple's, not the plugin's:
+
+> Apple requires `response_mode=form_post` whenever `name` or `email` scopes are requested, and
+> form-posts the result to an **https URL**, not a custom scheme. So the Android flow must round-trip
+> through an endpoint you control, which then redirects to `<your.application.id>://callback`.
+
+Set `redirect_uri` (not `redirect_scheme`) to that https endpoint for Apple. This is worth doing:
+App Store Guideline 4.8 requires offering Apple Sign-In alongside any other third-party sign-in, and
+without this an Android build cannot satisfy it.
 
 ## Server-Side Token Verification
 

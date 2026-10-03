@@ -111,7 +111,10 @@ test('event constructors expose every auth result field except provider and nonc
     $authFields = array_map(fn ($p) => $p->getName(), (new ReflectionClass(AuthResult::class))->getConstructor()->getParameters());
     $eventFields = array_map(fn ($p) => $p->getName(), (new ReflectionClass($event))->getConstructor()->getParameters());
 
-    $expected = array_values(array_diff($authFields, ['provider', 'nonce'], $platformOmits));
+    // provider is implicit in the event class; nonce travels inside identityToken;
+    // codeVerifier belongs only to the browser flow, which reports through
+    // AuthorizationCodeReceived rather than these SDK-backed events.
+    $expected = array_values(array_diff($authFields, ['provider', 'nonce', 'codeVerifier'], $platformOmits));
 
     expect(array_values(array_diff($expected, $eventFields)))->toBe([]);
 })->with([
@@ -217,6 +220,7 @@ test('social auth class exists with all methods', function () {
     expect(class_exists(SocialAuth::class))->toBeTrue();
 
     $methods = get_class_methods(SocialAuth::class);
+    expect($methods)->toContain('signIn');
     expect($methods)->toContain('appleSignIn');
     expect($methods)->toContain('googleSignIn');
     expect($methods)->toContain('checkAppleCredentialState');
@@ -374,4 +378,61 @@ test('sign-in failed event has correct properties', function () {
     expect($event->provider)->toBe('apple');
     expect($event->error)->toBe('User canceled');
     expect($event->errorCode)->toBe('CANCELED');
+});
+
+// Browser-based providers: the manifest has to carry the bridge function, the
+// Custom Tabs dependency, and the activity the redirect lands on. Any one of
+// them missing breaks the flow only at runtime, on device.
+
+test('nativephp.json declares the oauth bridge function', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    $fn = collect($json['bridge_functions'])->firstWhere('name', 'SocialAuth.OAuthSignIn');
+
+    expect($fn)->not->toBeNull();
+    expect($fn['ios'])->toBe('SocialAuthFunctions.OAuthSignIn');
+    expect($fn['android'])->toBe('com.ikromjon.plugins.socialauth.SocialAuthFunctions.OAuthSignIn');
+});
+
+test('nativephp.json registers the authorization code event', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    expect($json['events'])->toContain('Ikromjon\\NativePHP\\SocialAuth\\Events\\AuthorizationCodeReceived');
+});
+
+test('nativephp.json depends on androidx browser for custom tabs', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    expect(collect($json['android']['dependencies']['implementation'])
+        ->contains(fn (string $d) => str_starts_with($d, 'androidx.browser:browser')))->toBeTrue();
+});
+
+/**
+ * NativePHP substitutes ${ENV} placeholders into Info.plist but not into
+ * AndroidManifest.xml, so a per-app scheme cannot be declared there. The Android
+ * Gradle plugin does substitute ${applicationId}, which is why the redirect
+ * scheme is the application ID.
+ */
+test('the redirect activity listens on the application id scheme', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__).'/nativephp.json'), true);
+
+    $activity = collect($json['android']['activities'])
+        ->firstWhere('name', 'com.ikromjon.plugins.socialauth.SocialAuthRedirectActivity');
+
+    expect($activity)->not->toBeNull();
+    expect($activity['exported'])->toBeTrue();
+    expect($activity['launchMode'])->toBe('singleTask');
+
+    $filter = $activity['intent_filters'][0];
+
+    expect($filter['action'])->toBe('android.intent.action.VIEW');
+    expect($filter['category'])->toContain('android.intent.category.BROWSABLE');
+    expect($filter['data']['scheme'])->toBe('${applicationId}');
+});
+
+test('the redirect activity source exists and is in the plugin package', function () {
+    $kotlin = file_get_contents(dirname(__DIR__).'/resources/android/src/SocialAuthRedirectActivity.kt');
+
+    expect($kotlin)->toContain('package com.ikromjon.plugins.socialauth');
+    expect($kotlin)->toContain('class SocialAuthRedirectActivity');
 });
