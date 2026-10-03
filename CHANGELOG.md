@@ -4,11 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-> **The browser-based flow has not been run on a device yet.** The PHP layer is covered by tests, but
-> the Swift and Kotlin added for it have not been compiled or exercised on hardware. Every native fix
-> in this project's history — the URL-scheme `NSException`, the flat bridge responses, the swallowed
-> `Unknown named parameter` on Android — was a bug that only appeared on a real device. Cut this as a
-> pre-release and verify on device before promoting it, as 1.1.0 was.
+> **The browser-based flow has not been run on a device yet.** The PHP layer is covered by tests, and
+> the Swift and Kotlin added for it compile in a NativePHP for Mobile 4.6.0 app (iOS simulator build
+> on Xcode 27, Android `assembleDebug` at compile/target SDK 36), but no sign-in has been driven
+> through them. Every native fix in this project's history — the URL-scheme `NSException`, the flat
+> bridge responses, the swallowed `Unknown named parameter` on Android — was a bug that only appeared
+> on a real device. Cut this as a pre-release and verify on device before promoting it, as 1.1.0 was.
 
 ### Added
 - **Provider registry.** Providers now resolve through `ProviderRegistry` instead of being hardcoded at each layer. Built-in definitions (bridge function, sign-out support, URL-scheme strategy) ship with the plugin; anything under the new `providers` key of `config/social-auth.php` is merged **over** them per provider. Merging happens per provider rather than via `mergeConfigFrom`, which merges only at the top level -- so publishing the config file no longer risks silently dropping a provider added in a later release.
@@ -34,8 +35,8 @@ All notable changes to this project will be documented in this file.
 - `config/social-auth.php` gained `providers` and `dispatch_generic_event`. `google_server_client_id` is **deprecated** in favour of `providers.google.server_client_id` but is still read as a fallback, alongside `services.google.client_id`. It will be removed in 2.0.
 
 ### Notes
-- Everything here is additive; no existing call, event, config key, or native payload changed. The 58 tests that covered 1.1.0 pass unmodified, with 30 added.
-- The `oauth` driver is defined but **not implemented**. A provider configured with it is registered and gets its URL scheme written, but `signIn()` throws `UnsupportedDriverException` until the web-based flow ships in 1.3.0.
+- Everything here is additive; no existing call, event, config key, or native payload changed. The 58 tests that covered 1.1.0 pass unmodified, with 54 added.
+- GoogleSignIn-iOS stays at `~> 9.0`, which resolves 9.2.0 (AppAuth 2.1, GTMAppAuth 5.0) and builds on Xcode 27. GoogleSignIn-iOS 10.0.0 (AppAuth 3, GTMAppAuth 6, iOS 15 minimum) is out, but a `~> 9.0` constraint does not pick it up.
 
 ## [1.1.0] - 2026-09-05
 
