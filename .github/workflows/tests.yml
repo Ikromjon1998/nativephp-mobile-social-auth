@@ -11,9 +11,40 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
+        include:
+          # 3.3.11 and 4.6.1 are the first releases with DispatchableFromNative
+          # (GHSA-83jv-8h7x-287p); nothing older satisfies composer.json. The
+          # prefer-lowest jobs test those floors, the prefer-stable ones the
+          # newest 3.x and 4.x (3.3.12 and 4.8 added signed native events).
+          # main's ruleset requires checks named exactly "PHP 8.3" and
+          # "PHP 8.4", so the two prefer-stable jobs keep those names.
+          - name: PHP 8.3 - nativephp/mobile 3.3.11 - prefer-lowest
+            php: '8.3'
+            mobile: '3.3.11'
+            stability: prefer-lowest
+          - name: PHP 8.3
+            php: '8.3'
+            mobile: '3.3.*'
+            stability: prefer-stable
+          - name: PHP 8.3 - nativephp/mobile 4.6.1 - prefer-lowest
+            php: '8.3'
+            mobile: '4.6.1'
+            stability: prefer-lowest
+          - name: PHP 8.4 - nativephp/mobile 4.7.x
+            php: '8.4'
+            mobile: '4.7.*'
+            stability: prefer-stable
+          - name: PHP 8.4 - nativephp/mobile 4.8.x - prefer-lowest
+            php: '8.4'
+            mobile: '4.8.*'
+            stability: prefer-lowest
+          - name: PHP 8.4
+            php: '8.4'
+            mobile: '4.8.*'
+            stability: prefer-stable
+            quality: true
 
-    name: PHP ${{ matrix.php }}
+    name: ${{ matrix.name }}
 
     steps:
       - name: Checkout
@@ -26,18 +57,31 @@ jobs:
           coverage: none
           tools: composer:v2
 
+      - name: Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Composer dependencies
         uses: actions/cache@v4
         with:
-          path: ~/.composer/cache
-          key: composer-${{ matrix.php }}-${{ hashFiles('composer.json') }}
-          restore-keys: composer-${{ matrix.php }}-
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ matrix.php }}-${{ matrix.mobile }}-${{ matrix.stability }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ matrix.php }}-${{ matrix.mobile }}-${{ matrix.stability }}-
 
+      # Pins the core with --with so composer.json keeps its real constraint.
       - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
+        run: composer update --${{ matrix.stability }} --with "nativephp/mobile:${{ matrix.mobile }}" --prefer-dist --no-interaction --no-progress
+
+      - name: Resolved versions
+        run: composer show | grep -E '^(nativephp/mobile|laravel/framework|orchestra/testbench|pestphp/pest|phpunit/phpunit|larastan/larastan) '
 
       - name: Lint (Pint)
+        if: matrix.quality
         run: vendor/bin/pint --test
+
+      - name: Static analysis (Larastan)
+        if: matrix.quality
+        run: vendor/bin/phpstan analyse --no-progress
 
       - name: Tests (Pest)
         run: vendor/bin/pest
