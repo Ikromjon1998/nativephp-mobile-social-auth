@@ -23,9 +23,13 @@ export async function appleSignIn(scopes = ['email', 'fullName'], nonce = null, 
     return bridgeCall('SocialAuth.AppleSignIn', params);
 }
 
-export async function googleSignIn(nonce = null) {
+// Android's Credential Manager needs the Web (server) client ID. The PHP facade adds it from
+// config('social-auth.google_server_client_id'); a JavaScript caller passes it here, for example
+// import.meta.env.VITE_GOOGLE_SERVER_CLIENT_ID. iOS reads GIDServerClientID from Info.plist instead.
+export async function googleSignIn(nonce = null, serverClientId = null) {
     const params = {};
     if (nonce) params.nonce = nonce;
+    if (serverClientId) params.serverClientId = serverClientId;
     return bridgeCall('SocialAuth.GoogleSignIn', params);
 }
 

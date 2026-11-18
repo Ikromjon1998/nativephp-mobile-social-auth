@@ -166,6 +166,17 @@ test('javascript bridge file exists', function () {
     expect(file_exists(dirname(__DIR__).'/resources/js/social-auth.js'))->toBeTrue();
 });
 
+test('javascript google sign-in can send the server client id the android bridge reads', function () {
+    // The PHP facade adds it from config; a JavaScript caller has no config, so on Android
+    // Credential Manager fails with MISSING_CONFIG unless the caller can pass it.
+    $js = file_get_contents(dirname(__DIR__).'/resources/js/social-auth.js');
+    $kotlin = file_get_contents(dirname(__DIR__).'/resources/android/src/SocialAuthFunctions.kt');
+
+    expect($js)->toContain('export async function googleSignIn(nonce = null, serverClientId = null)')
+        ->and($js)->toContain('params.serverClientId = serverClientId')
+        ->and($kotlin)->toContain('parameters["serverClientId"]');
+});
+
 // Swift bridge function classes exist
 
 test('swift file contains all bridge function classes', function () {
