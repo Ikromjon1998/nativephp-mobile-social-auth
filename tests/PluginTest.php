@@ -82,10 +82,11 @@ test('the ios bridge refuses to sign in when the url scheme is unregistered', fu
     expect($guardPos)->toBeLessThan($signInPos);
 });
 
-test('composer allows nativephp mobile v3 and v4', function () {
+test('composer requires a nativephp mobile release with the DispatchableFromNative marker', function () {
+    // 3.3.11 and 4.6.1 fixed GHSA-83jv-8h7x-287p and are the first releases with the interface.
     $json = json_decode(file_get_contents(dirname(__DIR__).'/composer.json'), true);
 
-    expect($json['require']['nativephp/mobile'])->toBe('^3.0|^4.0');
+    expect($json['require']['nativephp/mobile'])->toBe('^3.3.11|^4.6.1');
 });
 
 // The Apple presentation context provider is held weakly by ASAuthorizationController.
