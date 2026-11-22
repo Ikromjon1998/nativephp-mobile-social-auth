@@ -1,0 +1,17 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 5
+    paths:
+        - src
+    ignoreErrors:
+        # The post_compile hook runs during `native:run` / `native:build`, on the
+        # developer's machine, never inside the app. NativePHP's own build
+        # resolves the same ${GOOGLE_IOS_CLIENT_ID} placeholder in the plist this
+        # hook patches with env() (IOSPluginCompiler), so the hook reads it the
+        # same way and stays in step with it.
+        -
+            identifier: larastan.noEnvCallsOutsideOfConfig
+            path: src/Commands/RegisterGoogleUrlSchemeCommand.php
+            count: 2

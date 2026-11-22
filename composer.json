@@ -1,17 +1,27 @@
 {
     "name": "ikromjon/nativephp-mobile-social-auth",
-    "description": "Native Apple Sign-In and Google Sign-In for NativePHP mobile apps",
+    "description": "Native social login for NativePHP Mobile 3.x and 4.x: Sign in with Apple on iOS and Google Sign-In (OAuth) on iOS and Android, using the platform SDKs.",
     "type": "nativephp-plugin",
     "license": "proprietary",
     "keywords": [
         "nativephp",
+        "nativephp-plugin",
+        "nativephp-mobile",
+        "login",
+        "social-login",
+        "oauth",
+        "authentication",
         "social-auth",
+        "sign-in",
+        "sign-in-with-apple",
         "apple-sign-in",
         "google-sign-in",
-        "mobile",
-        "laravel",
+        "apple-login",
+        "google-login",
         "ios",
-        "android"
+        "android",
+        "laravel",
+        "mobile"
     ],
     "authors": [
         {
@@ -21,13 +31,14 @@
     ],
     "require": {
         "php": "^8.3",
-        "nativephp/mobile": "^3.0|^4.0",
+        "nativephp/mobile": "^3.3.11|^4.6.1",
         "illuminate/support": "^11.0|^12.0|^13.0"
     },
     "require-dev": {
-        "pestphp/pest": "^3.0",
+        "larastan/larastan": "^3.0",
         "laravel/pint": "^1.0",
-        "orchestra/testbench": "^9.0|^10.0"
+        "orchestra/testbench": "^9.0|^10.0",
+        "pestphp/pest": "^3.0"
     },
     "autoload": {
         "psr-4": {

@@ -4,8 +4,9 @@ namespace Ikromjon\NativePHP\SocialAuth\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Native\Mobile\Events\Contracts\DispatchableFromNative;
 
-class AppleSignInCompleted
+class AppleSignInCompleted implements DispatchableFromNative
 {
     use Dispatchable, SerializesModels;
 

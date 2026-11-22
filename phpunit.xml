@@ -9,6 +9,12 @@
     <testsuites>
         <testsuite name="Plugin">
             <directory>tests</directory>
+            <exclude>tests/SuperNative</exclude>
+        </testsuite>
+        <!-- Boots NativeServiceProvider, which defines NativePHP's global
+             nativephp_* polyfills for the rest of the process, so it runs last. -->
+        <testsuite name="SuperNative">
+            <directory>tests/SuperNative</directory>
         </testsuite>
     </testsuites>
     <source>

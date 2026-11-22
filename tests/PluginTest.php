@@ -82,10 +82,25 @@ test('the ios bridge refuses to sign in when the url scheme is unregistered', fu
     expect($guardPos)->toBeLessThan($signInPos);
 });
 
-test('composer allows nativephp mobile v3 and v4', function () {
+test('the marketplace description is the same everywhere and names login and oauth', function () {
+    // The marketplace search matches the plugin's name and description, and buyers search for
+    // "login" and "OAuth". native:plugin:create puts the listing metadata in nativephp.json.
+    $root = dirname(__DIR__);
+    $composer = json_decode(file_get_contents($root.'/composer.json'), true);
+    $manifest = json_decode(file_get_contents($root.'/nativephp.json'), true);
+
+    expect($manifest['name'])->toBe($composer['name'])
+        ->and($manifest['description'])->toBe($composer['description'])
+        ->and($manifest['keywords'])->toBe($composer['keywords'])
+        ->and($composer['description'])->toContain('login')->toContain('OAuth')
+        ->and($manifest['platforms'])->toBe(['android', 'ios']);
+});
+
+test('composer requires a nativephp mobile release with the DispatchableFromNative marker', function () {
+    // 3.3.11 and 4.6.1 fixed GHSA-83jv-8h7x-287p and are the first releases with the interface.
     $json = json_decode(file_get_contents(dirname(__DIR__).'/composer.json'), true);
 
-    expect($json['require']['nativephp/mobile'])->toBe('^3.0|^4.0');
+    expect($json['require']['nativephp/mobile'])->toBe('^3.3.11|^4.6.1');
 });
 
 // The Apple presentation context provider is held weakly by ASAuthorizationController.
@@ -163,6 +178,17 @@ test('kotlin bridge functions file exists', function () {
 
 test('javascript bridge file exists', function () {
     expect(file_exists(dirname(__DIR__).'/resources/js/social-auth.js'))->toBeTrue();
+});
+
+test('javascript google sign-in can send the server client id the android bridge reads', function () {
+    // The PHP facade adds it from config; a JavaScript caller has no config, so on Android
+    // Credential Manager fails with MISSING_CONFIG unless the caller can pass it.
+    $js = file_get_contents(dirname(__DIR__).'/resources/js/social-auth.js');
+    $kotlin = file_get_contents(dirname(__DIR__).'/resources/android/src/SocialAuthFunctions.kt');
+
+    expect($js)->toContain('export async function googleSignIn(nonce = null, serverClientId = null)')
+        ->and($js)->toContain('params.serverClientId = serverClientId')
+        ->and($kotlin)->toContain('parameters["serverClientId"]');
 });
 
 // Swift bridge function classes exist
