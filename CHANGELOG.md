@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 - Requires nativephp/mobile ^3.3.11|^4.6.1
 
 ### Documentation
-- README: NativePHP 3.x and 4.x side by side. Native screens (`NativeComponent` with `#[On]`, tested with `Native::test()`) are the recommended context; the Livewire example is for web-view apps.
+- README: NativePHP 3.x and 4.x side by side. Native screens (`NativeComponent` with `#[On]`, tested with `Native::test()`) are the recommended context; the Livewire example is for web-view apps. The tests run the README's native-screen class, view and test as printed.
 - Version-specific details:
   - The Android minimum-SDK step applies only to a `config/nativephp.php` without `min_sdk` (NativePHP 3's, or one kept from it).
   - `System::isIos()` / `@ios` are reliable from 4.7, and on NativePHP 3 need the `nativephp/mobile-device` plugin.

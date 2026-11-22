@@ -12,10 +12,11 @@ use Native\Mobile\Edge\Elements\Text;
 use Native\Mobile\Edge\NativeComponent;
 
 /**
- * The Login screen from the Boost guidelines, as written there: its
- * handlers take only the fields they use and leave the rest of the
- * payload alone. It records what the Google handler received, and
- * renders an element tree because a test has no Blade view to infer.
+ * The Login screen from the Boost guidelines with its Google handler
+ * recording what it received, to show that a handler taking only some
+ * fields gets them from a full payload. BoostGuidelineExamplesTest keeps
+ * its handlers equal to the guidelines' own. It renders an element tree
+ * because a test has no Blade view to infer.
  */
 class LoginScreen extends NativeComponent
 {
