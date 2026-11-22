@@ -13,11 +13,12 @@ jobs:
       matrix:
         include:
           # 3.3.11 and 4.6.1 are the first releases with DispatchableFromNative
-          # (GHSA-83jv-8h7x-287p); nothing older satisfies composer.json. The
-          # prefer-lowest jobs test those floors, the prefer-stable ones the
-          # newest 3.x and 4.x (3.3.12 and 4.8 added signed native events).
+          # (GHSA-83jv-8h7x-287p); nothing older satisfies composer.json. Two
+          # prefer-lowest jobs test those floors; the others test the newest
+          # 3.3.x, 4.7.x and 4.8.x (3.3.12 and 4.8 added signed native events).
           # main's ruleset requires checks named exactly "PHP 8.3" and
-          # "PHP 8.4", so the two prefer-stable jobs keep those names.
+          # "PHP 8.4", so the prefer-stable jobs on the newest 3.x and 4.x keep
+          # those names.
           - name: PHP 8.3 - nativephp/mobile 3.3.11 - prefer-lowest
             php: '8.3'
             mobile: '3.3.11'
