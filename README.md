@@ -302,16 +302,23 @@ class Login extends NativeComponent
 {{-- resources/views/native/login.blade.php --}}
 <native:column class="gap-3 p-4">
     @ios
-        <native:button label="Sign in with Apple" @tap="signInWithApple" />
+        <native:pressable @tap="signInWithApple">
+            <native:text>Sign in with Apple</native:text>
+        </native:pressable>
     @endios
-    <native:button label="Sign in with Google" @tap="signInWithGoogle" />
+    <native:pressable @tap="signInWithGoogle">
+        <native:text>Sign in with Google</native:text>
+    </native:pressable>
     @if ($error)
         <native:text>{{ $error }}</native:text>
     @endif
 </native:column>
 ```
 
-On NativePHP 4.6 `@ios` can be `false` on the iOS simulator; see [Known issues](#known-issues).
+The view uses only elements NativePHP 4 itself provides. A `<native:button>` needs the
+`nativephp/mobile-ui` plugin; without it the screen fails with "Unknown native element type: button".
+Style the Apple control to Apple's Sign in with Apple button guidelines before you ship. Before
+NativePHP 4.7, `@ios` can be `false` on the iOS simulator; see [Known issues](#known-issues).
 Use `#[On]` in a `NativeComponent`, never `#[OnNative]`, which is for Livewire components in a web
 view. Test the screen without a device using `Native::test()`:
 
