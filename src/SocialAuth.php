@@ -80,7 +80,8 @@ class SocialAuth
      * Check if an Apple Sign-In credential is still valid.
      *
      * @param  string  $userId  The Apple user identifier from a previous sign-in
-     * @return string 'authorized', 'revoked', 'not_found', or 'unknown'
+     * @return string 'authorized', 'revoked', 'not_found', 'transferred' or 'unknown' on iOS;
+     *                'unsupported_platform' on Android
      */
     public function checkAppleCredentialState(string $userId): string
     {
